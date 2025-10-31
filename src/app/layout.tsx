@@ -1,8 +1,7 @@
-// src/app/layout.tsx
+// src/app/layout.tsx (O Layout Raiz CORRIGIDO)
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
-import MainLayout from "@/components/MainLayout"; 
 // 1. Importe o nosso provedor
 import { AuthProvider } from "@/context/AuthContext";
 
@@ -21,11 +20,10 @@ export default function RootLayout({
   return (
     <html lang="pt-br">
       <body className={inter.className}>
-        {/* 2. Envolva o app com o AuthProvider */}
+        {/* 2. Envolva APENAS com o AuthProvider */}
+        {/* O MainLayout NÃO deve estar aqui */}
         <AuthProvider>
-          <MainLayout>
-            {children}
-          </MainLayout>
+          {children}
         </AuthProvider>
       </body>
     </html>
