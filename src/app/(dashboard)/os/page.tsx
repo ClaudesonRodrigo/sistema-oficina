@@ -169,34 +169,26 @@ export default function OsPage() {
     },
   });
 
-  // CORREÇÃO 1: Adicionado "update" do useFieldArray
   const { fields, append, remove, update } = useFieldArray({
     control: form.control,
     name: "itens",
   });
 
-  // CORREÇÃO 2: Função "adicionarProduto" agora soma quantidade
   const adicionarProduto = (produto: Produto) => {
-    // Procura o índice do item no carrinho
     const itemIndex = fields.findIndex((field) => field.id === produto.id);
 
     if (itemIndex > -1) {
-      // --- SE O ITEM JÁ EXISTE ---
       const item = fields[itemIndex];
       const novaQtde = item.qtde + 1;
 
-      // Validação de estoque
       if (produto.tipo === "peca" && novaQtde > produto.estoqueAtual) {
         alert(
           `Estoque máximo (${produto.estoqueAtual}) atingido para ${produto.nome}.`
         );
         return;
       }
-      // Atualiza a quantidade do item existente
       update(itemIndex, { ...item, qtde: novaQtde });
     } else {
-      // --- SE O ITEM É NOVO ---
-      // Adiciona o novo item ao array
       append({
         id: produto.id,
         nome: produto.nome,
@@ -206,20 +198,17 @@ export default function OsPage() {
         estoqueAtual: produto.estoqueAtual,
       });
     }
-    // Fecha o popover em ambos os casos
     setIsComboboxOpen(false);
   };
 
-  // CORREÇÃO 3: Usar "form.watch" para o total recalcular em tempo real
   const watchedItens = form.watch("itens");
   const valorTotalOS = watchedItens.reduce((total, item) => {
-    return total + (item.precoUnitario * item.qtde);
+    return total + (item.precoUnitario * (item.qtde || 0)); // Garante que qtde não seja NaN
   }, 0);
 
   // --- FUNÇÃO DE SALVAR A OS (COM VERIFICAÇÃO DE DUPLICADA) ---
   async function onSubmit(values: z.infer<typeof osFormSchema>) {
     
-    // --- CORREÇÃO 4: Verificação de OS aberta ---
     try {
       const q = query(
         collection(db, "ordensDeServico"),
@@ -231,14 +220,13 @@ export default function OsPage() {
       
       if (!querySnapshot.empty) {
         alert("Erro: Este cliente já possui uma Ordem de Serviço em aberto. Finalize a OS anterior ('Frente de Caixa') antes de criar uma nova.");
-        return; // Para a execução
+        return; 
       }
     } catch (error) {
       console.error("Erro ao verificar OS existente:", error);
       alert("Erro ao verificar OS existente. Tente novamente.");
       return;
     }
-    // --- Fim da verificação ---
 
     const clienteSelecionado = clientes.find((c) => c.id === values.clienteId);
     if (!clienteSelecionado) {
@@ -436,7 +424,7 @@ export default function OsPage() {
                                 key={produto.id}
                                 value={produto.nome}
                                 onSelect={() => {
-                                  adicionarProduto(produto); // Função corrigida
+                                  adicionarProduto(produto);
                                 }}
                               >
                                 <Check
@@ -525,7 +513,7 @@ export default function OsPage() {
                             R$ {item.precoUnitario.toFixed(2)}
                           </TableCell>
                           <TableCell>
-                            R$ {(item.precoUnitario * item.qtde).toFixed(2)}
+                            R$ {(item.precoUnitario * (item.qtde || 0)).toFixed(2)}
                           </TableCell>
                           <TableCell>
                             <Button

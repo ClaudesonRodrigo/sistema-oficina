@@ -13,6 +13,7 @@ import {
   query,
   where,
   Timestamp,
+  addDoc, // <-- 1. IMPORTAR addDoc
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 
@@ -70,7 +71,6 @@ export default function CaixaPage() {
   const [osAbertas, setOsAbertas] = useState<OrdemDeServico[]>([]);
   const [loading, setLoading] = useState(true);
   
-  // Estado para controlar qual OS está sendo paga no modal
   const [selectedOS, setSelectedOS] = useState<OrdemDeServico | null>(null);
 
   // --- Efeito para buscar OS "abertas" ---
@@ -90,7 +90,7 @@ export default function CaixaPage() {
       setLoading(false);
     });
 
-    return () => unsub(); // Limpa o "ouvinte"
+    return () => unsub();
   }, []);
 
   // --- Configuração do Formulário de Pagamento ---
@@ -101,29 +101,39 @@ export default function CaixaPage() {
     },
   });
 
-  // --- Função de Finalizar Pagamento ---
+  // --- FUNÇÃO DE FINALIZAR PAGAMENTO (MODIFICADA) ---
   async function onSubmit(values: z.infer<typeof pagamentoSchema>) {
     if (!selectedOS) return;
 
-    try {
-      const osDocRef = doc(db, "ordensDeServico", selectedOS.id);
+    const dataFinalizacao = new Date(); // Pega a data e hora exata agora
 
-      // Atualiza o documento
+    try {
+      // --- PASSO 1: ATUALIZAR A ORDEM DE SERVIÇO ---
+      const osDocRef = doc(db, "ordensDeServico", selectedOS.id);
       await updateDoc(osDocRef, {
         status: "finalizada",
         formaPagamento: values.formaPagamento,
-        dataFechamento: new Date(), // Salva a data de hoje
+        dataFechamento: dataFinalizacao, // Salva a data de fechamento
       });
-
       console.log("OS finalizada com sucesso!");
-      // TODO: Adicionar toast de sucesso
-      
-      // Fecha o modal e limpa o formulário
+
+      // --- PASSO 2 (NOVO): REGISTRAR "ENTRADA" NO LIVRO CAIXA ---
+      await addDoc(collection(db, "movimentacoes"), {
+        data: dataFinalizacao, // Usa a mesma data da finalização
+        tipo: "entrada",
+        descricao: `Venda OS #${selectedOS.numeroOS}`,
+        valor: selectedOS.valorTotal,
+        formaPagamento: values.formaPagamento,
+        referenciaId: selectedOS.id, // Link para a OS
+      });
+      console.log("Movimentação de entrada registrada!");
+
+      // --- Limpeza do formulário ---
       setSelectedOS(null);
       form.reset();
-
+      
     } catch (error) {
-      console.error("Erro ao finalizar OS:", error);
+      console.error("Erro ao finalizar OS e registrar movimentação:", error);
       // TODO: Adicionar toast de erro
     }
   }
@@ -240,7 +250,7 @@ export default function CaixaPage() {
           <DialogFooter>
             <Button
               type="submit"
-              form="pagamentoForm" // Faz este botão enviar o formulário
+              form="pagamentoForm" 
               disabled={form.formState.isSubmitting}
             >
               {form.formState.isSubmitting ? "Finalizando..." : "Finalizar Pagamento"}

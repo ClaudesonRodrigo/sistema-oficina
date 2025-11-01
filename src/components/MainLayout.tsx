@@ -2,25 +2,25 @@
 "use client"; 
 
 import React from 'react';
-import { useAuth } from '@/context/AuthContext'; // 1. Importa o nosso hook
+import { useAuth } from '@/context/AuthContext';
 import { Button } from './ui/button';
 import { auth } from '@/lib/firebase';
 import { LogOut } from 'lucide-react';
-import Link from 'next/link'; // 2. Importa o Link do Next.js
+import Link from 'next/link'; 
 
-// 3. Define a estrutura dos links
+// 1. ATUALIZAÇÃO: Adicionado o link "Lançar Despesas"
 const menuItens = [
   { nome: 'Dashboard', href: '/', adminOnly: false },
   { nome: 'Ordens de Serviço', href: '/os', adminOnly: false },
-  { nome: 'Frente de Caixa', href: '/caixa', adminOnly: false }, // Já vamos deixar o link pronto
-  { nome: 'Clientes', href: '/clientes', adminOnly: true }, // <-- SÓ ADMIN
-  { nome: 'Produtos (Peças)', href: '/produtos', adminOnly: true }, // <-- SÓ ADMIN
-  { nome: 'Gerenciar Usuários', href: '/usuarios', adminOnly: true }, // <-- SÓ ADMIN
+  { nome: 'Frente de Caixa', href: '/caixa', adminOnly: false }, 
+  { nome: 'Lançar Despesas', href: '/despesas', adminOnly: true }, // <-- NOVO LINK (SÓ ADMIN)
+  { nome: 'Clientes', href: '/clientes', adminOnly: true },
+  { nome: 'Produtos (Peças)', href: '/produtos', adminOnly: true },
+  { nome: 'Gerenciar Usuários', href: '/usuarios', adminOnly: true },
 ];
 
 export default function MainLayout({ children }: { children: React.ReactNode }) {
   
-  // 4. Pega os dados do usuário, incluindo o "role"
   const { userData } = useAuth();
   const isAdmin = userData?.role === 'admin';
 
@@ -33,9 +33,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
         </div>
         <nav className="flex-1 p-4 space-y-2">
           
-          {/* 5. LÓGICA PARA FILTRAR O MENU */}
           {menuItens.map((item) => {
-            // Se o item NÃO for "adminOnly", mostra para todo mundo
             if (!item.adminOnly) {
               return (
                 <Link
@@ -48,7 +46,6 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
               );
             }
             
-            // Se o item FOR "adminOnly" E o usuário FOR "admin", mostra
             if (item.adminOnly && isAdmin) {
               return (
                 <Link
@@ -60,8 +57,6 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
                 </Link>
               );
             }
-
-            // Se não for nenhum dos casos acima (item de admin, usuário não é admin), não renderiza nada
             return null;
           })}
         </nav>
