@@ -1,6 +1,6 @@
 // src/app/(dashboard)/page.tsx
 "use client";
-
+import Link from "next/link";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -164,7 +164,11 @@ export default function HomePage() {
                     <TableCell>
                       {new Date(os.dataAbertura.seconds * 1000).toLocaleDateString()}
                     </TableCell>
-                    <TableCell>{os.numeroOS}</TableCell>
+                    <TableCell>
+                      <Link href={`/os/${os.id}`} className="font-medium text-primary hover:underline">
+                        {os.numeroOS}
+                      </Link>
+                    </TableCell>
                     <TableCell>{os.status}</TableCell>
                     <TableCell>{os.nomeCliente}</TableCell>
                     <TableCell>{os.servicosDescricao || "N/A"}</TableCell>

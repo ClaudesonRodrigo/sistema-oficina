@@ -111,6 +111,77 @@
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.551 0.027 264.364);
 }
+/* --- ESTILOS DE IMPRESSÃO PARA COMPROVANTE --- */
+@media print {
+  /* Esconde o menu lateral e tudo que tiver a classe .no-print */
+  aside.w-64, .no-print {
+    display: none !important;
+  }
+
+  /* Reseta o layout principal */
+  main {
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: visible !important;
+  }
+
+  /* Reseta o body */
+  body {
+    background: #fff !important;
+    margin: 0;
+    padding: 0;
+  }
+
+  /* Força a área do recibo a se ajustar */
+  .print-container {
+    padding: 0;
+    margin: 0;
+  }
+
+  /* Formata o card como o recibo */
+  #os-receipt {
+    /* Largura para impressora térmica de 80mm */
+    width: 302px; 
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+  }
+  
+  #os-receipt > div { /* Target CardContent */
+     padding: 10px !important;
+  }
+
+  /* Força todo o texto para preto e fundo branco */
+  #os-receipt *, #os-receipt *::before, #os-receipt *::after {
+    color: #000 !important;
+    background-color: #fff !important;
+    font-size: 10px; /* Fonte pequena para caber */
+    line-height: 1.4;
+  }
+
+  /* Ajustes finos nos títulos e tabelas */
+  #os-receipt h1, #os-receipt h2, #os-receipt p {
+    font-size: 10px;
+    margin-bottom: 5px;
+  }
+
+  #os-receipt .text-2xl {
+    font-size: 14px !important; /* Título principal */
+  }
+  
+  #os-receipt .font-semibold {
+    font-weight: 600 !important;
+  }
+
+  #os-receipt table {
+     width: 100%;
+  }
+  
+  #os-receipt th, #os-receipt td {
+    padding: 2px !important;
+    font-size: 9px !important;
+  }
+}
 
 @layer base {
   * {
@@ -120,3 +191,4 @@
     @apply bg-background text-foreground;
   }
 }
+

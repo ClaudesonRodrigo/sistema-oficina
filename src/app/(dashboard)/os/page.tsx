@@ -9,6 +9,7 @@ import { collection, addDoc, onSnapshot, runTransaction, doc } from "firebase/fi
 import { db } from "@/lib/firebase";
 import { cn } from "@/lib/utils";
 import { Check, ChevronsUpDown, Trash2 } from "lucide-react"; // Ícones
+import Link from "next/link";
 
 // --- Importações dos componentes Shadcn ---
 import { Button } from "@/components/ui/button";
@@ -505,7 +506,11 @@ export default function OsPage() {
           <TableBody>
             {ordensDeServico.map((os) => (
               <TableRow key={os.id}>
-                <TableCell>{os.numeroOS}</TableCell>
+                <TableCell>
+                <Link href={`/os/${os.id}`} className="font-medium text-primary hover:underline">
+                  {os.numeroOS}
+                </Link>
+              </TableCell>
                 <TableCell className="font-medium">{os.nomeCliente}</TableCell>
                 <TableCell>{os.placaVeiculo}</TableCell>
                 <TableCell>{new Date(os.dataAbertura.seconds * 1000).toLocaleDateString()}</TableCell>
