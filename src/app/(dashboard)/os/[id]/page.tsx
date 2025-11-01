@@ -17,8 +17,7 @@ import {
 } from "@/components/ui/table";
 import { ArrowLeft, Printer } from "lucide-react";
 
-// --- Interface para os dados da OS ---
-// (Mais completa que a da lista)
+// --- Interface para os dados da OS (COM NOVOS CAMPOS) ---
 interface ItemOS {
   id: string;
   nome: string;
@@ -30,6 +29,7 @@ interface OrdemDeServico {
   id: string;
   numeroOS: number;
   dataAbertura: Timestamp;
+  dataFechamento?: Timestamp; // <-- NOVO CAMPO
   nomeCliente: string;
   veiculoPlaca: string;
   veiculoModelo: string;
@@ -37,12 +37,13 @@ interface OrdemDeServico {
   status: string;
   valorTotal: number;
   itens: ItemOS[];
+  garantiaDias?: number; // <-- NOVO CAMPO
 }
 
 export default function OsDetailPage() {
   const router = useRouter();
   const params = useParams();
-  const { id } = params; // Pega o ID da URL
+  const { id } = params; 
 
   const [os, setOs] = useState<OrdemDeServico | null>(null);
   const [loading, setLoading] = useState(true);
@@ -50,8 +51,7 @@ export default function OsDetailPage() {
   // --- Efeito para buscar a OS específica ---
   useEffect(() => {
     if (id) {
-      const osId = Array.isArray(id) ? id[0] : id; // Garante que o ID é uma string
-
+      const osId = Array.isArray(id) ? id[0] : id; 
       const fetchOS = async () => {
         setLoading(true);
         try {
@@ -70,10 +70,30 @@ export default function OsDetailPage() {
           setLoading(false);
         }
       };
-
       fetchOS();
     }
   }, [id]);
+
+  // --- NOVA FUNÇÃO: CALCULAR STATUS DA GARANTIA ---
+  const getGarantiaStatus = (os: OrdemDeServico) => {
+    if (os.status !== 'finalizada' || !os.dataFechamento) {
+      return <span className="text-gray-500 capitalize">{os.status}</span>;
+    }
+    if (!os.garantiaDias || os.garantiaDias === 0) {
+      return <span className="text-gray-500">Sem Garantia</span>;
+    }
+    const dataFechamento = new Date(os.dataFechamento.seconds * 1000);
+    const dataExpiracao = new Date(dataFechamento);
+    dataExpiracao.setDate(dataExpiracao.getDate() + os.garantiaDias);
+    const hoje = new Date();
+
+    if (hoje > dataExpiracao) {
+      return <span className="font-bold text-red-600">Fora da Garantia</span>;
+    } else {
+      return <span className="font-bold text-green-600">Na Garantia</span>;
+    }
+  };
+
 
   if (loading) {
     return (
@@ -94,15 +114,10 @@ export default function OsDetailPage() {
     );
   }
 
-  // --- O layout da página de impressão virá aqui ---
- // --- O layout da página de impressão virá aqui ---
   return (
-    // 1. CORREÇÃO: Esta é a div principal, sem o "//"
-    <div className="print-container">
-      
+    <div className="print-container">/page.tsx"]
       {/* --- Cabeçalho com botões --- */}
-      {/* 2. ADICIONADO: Classe para esconder esta div na impressão */}
-      <div className="flex justify-between items-center mb-6 no-print">
+      <div className="flex justify-between items-center mb-6 no-print">/page.tsx"]
         <Button variant="outline" onClick={() => router.push("/os")}>
           <ArrowLeft className="mr-2 h-4 w-4" /> Voltar para lista
         </Button>
@@ -115,8 +130,7 @@ export default function OsDetailPage() {
       </div>
 
       {/* --- Conteúdo da OS --- */}
-      {/* 3. ADICIONADO: ID para estilizar o recibo */}
-      <Card id="os-receipt"> {/* ID "os-receipt" adicionado aqui */}
+      <Card id="os-receipt">/page.tsx"]
         <CardContent className="p-6">
           {/* Dados do Cliente e Veículo */}
           <div className="grid grid-cols-3 gap-4 mb-6">
@@ -133,12 +147,16 @@ export default function OsDetailPage() {
               <p>{os.veiculoModelo}</p>
             </div>
             <div>
-              <p className="font-semibold">Data de Abertura:</p>
+              <p className="font-semibold">Data Abertura:</p>
               <p>{new Date(os.dataAbertura.seconds * 1000).toLocaleString()}</p>
             </div>
+             <div>
+              <p className="font-semibold">Data Fechamento:</p>
+              <p>{os.dataFechamento ? new Date(os.dataFechamento.seconds * 1000).toLocaleString() : "N/A"}</p>
+            </div>
             <div>
-              <p className="font-semibold">Status:</p>
-              <p className="capitalize">{os.status}</p>
+              <p className="font-semibold">Garantia:</p>
+              <p>{getGarantiaStatus(os)}</p>
             </div>
           </div>
           

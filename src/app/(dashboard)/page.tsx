@@ -12,6 +12,7 @@ import {
   where,
   getDocs,
   orderBy,
+  Timestamp,
 } from "firebase/firestore";
 
 // Componentes Shadcn
@@ -34,20 +35,21 @@ import {
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
-// --- Interface para os resultados da busca ---
-// (Usamos a mesma estrutura da OS)
+// --- Interface para os resultados (COM NOVOS CAMPOS) ---
 interface ResultadoOS {
   id: string;
   numeroOS: number;
-  dataAbertura: { seconds: number }; // Formato do Firestore Timestamp
+  dataFechamento?: Timestamp;
+  dataAbertura: Timestamp;
   nomeCliente: string;
-  veiculoPlaca: string; // Adicionado para exibir na tabela
+  veiculoPlaca: string;
   servicosDescricao?: string;
   status: string;
   valorTotal: number;
+  garantiaDias?: number;
 }
 
-// --- Schema de Validação do formulário de busca ---
+// --- Schema de Validação (igual) ---
 const searchSchema = z.object({
   placa: z.string().min(3, { message: "Digite pelo menos 3 caracteres da placa." }),
 });
@@ -55,7 +57,7 @@ const searchSchema = z.object({
 export default function HomePage() {
   const [resultados, setResultados] = useState<ResultadoOS[]>([]);
   const [loading, setLoading] = useState(false);
-  const [searched, setSearched] = useState(false); // Para saber se já buscou
+  const [searched, setSearched] = useState(false);
 
   const form = useForm<z.infer<typeof searchSchema>>({
     resolver: zodResolver(searchSchema),
@@ -64,25 +66,22 @@ export default function HomePage() {
     },
   });
 
-  // --- Função de Busca pela Placa ---
+  // --- Função de Busca (igual) ---
   async function onSubmit(values: z.infer<typeof searchSchema>) {
     setLoading(true);
-    setSearched(true); // Marca que uma busca foi feita
-    setResultados([]); // Limpa resultados anteriores
+    setSearched(true);
+    setResultados([]);
 
     try {
-      // 1. Cria a consulta no Firestore
       const osRef = collection(db, "ordensDeServico");
       const q = query(
         osRef,
-        where("veiculoPlaca", "==", values.placa.toUpperCase()), // Busca pela placa exata (convertida para maiúscula)
-        orderBy("dataAbertura", "desc") // Ordena pela mais recente
+        where("veiculoPlaca", "==", values.placa.toUpperCase()),
+        orderBy("dataAbertura", "desc")
       );
 
-      // 2. Executa a consulta
       const querySnapshot = await getDocs(q);
 
-      // 3. Formata os resultados
       const listaResultados: ResultadoOS[] = [];
       querySnapshot.forEach((doc) => {
         listaResultados.push({ id: doc.id, ...doc.data() } as ResultadoOS);
@@ -91,11 +90,33 @@ export default function HomePage() {
       setResultados(listaResultados);
     } catch (error) {
       console.error("Erro ao buscar OS por placa: ", error);
-      // TODO: Mostrar toast de erro
     } finally {
       setLoading(false);
     }
   }
+
+  // --- FUNÇÃO: CALCULAR STATUS DA GARANTIA ---
+  const getGarantiaStatus = (os: ResultadoOS) => {
+    if (os.status !== 'finalizada' || !os.dataFechamento) {
+      return <span className="text-gray-500">{os.status}</span>;
+    }
+    
+    if (!os.garantiaDias || os.garantiaDias === 0) {
+      return <span className="text-gray-500">Sem Garantia</span>;
+    }
+
+    const dataFechamento = new Date(os.dataFechamento.seconds * 1000);
+    const dataExpiracao = new Date(dataFechamento);
+    dataExpiracao.setDate(dataExpiracao.getDate() + os.garantiaDias);
+
+    const hoje = new Date();
+
+    if (hoje > dataExpiracao) {
+      return <span className="font-bold text-red-600">Fora da Garantia</span>;
+    } else {
+      return <span className="font-bold text-green-600">Na Garantia</span>;
+    }
+  };
 
   return (
     <div>
@@ -113,10 +134,10 @@ export default function HomePage() {
             render={({ field }) => (
               <FormItem className="flex-1">
                 <FormControl>
-                  <Input 
-                    placeholder="Digite a placa (ex: ABC-1234)" 
-                    {...field} 
-                    className="text-lg p-6" 
+                  <Input
+                    placeholder="Digite a placa (ex: ABC-1234)"
+                    {...field}
+                    className="text-lg p-6"
                     autoComplete="off"
                   />
                 </FormControl>
@@ -132,11 +153,13 @@ export default function HomePage() {
 
       {/* --- Área de Resultados --- */}
       {loading && <p>Buscando histórico...</p>}
-      
+
       {!loading && searched && resultados.length === 0 && (
         <Card className="mt-4">
           <CardContent className="pt-6">
-            <p className="text-center text-lg">Nenhuma Ordem de Serviço encontrada para esta placa.</p>
+            <p className="text-center text-lg">
+              Nenhuma Ordem de Serviço encontrada para esta placa.
+            </p>
           </CardContent>
         </Card>
       )}
@@ -150,11 +173,11 @@ export default function HomePage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Data</TableHead>
                   <TableHead>Nº OS</TableHead>
-                  <TableHead>Status</TableHead>
+                  <TableHead>Data</TableHead>
+                  {/* CORREÇÃO AQUI: Comentário movido para dentro do TableHead */}
+                  <TableHead>Status Garantia {/* <-- NOVA COLUNA */}</TableHead>
                   <TableHead>Cliente</TableHead>
-                  <TableHead>Serviços</TableHead>
                   <TableHead>Valor Total</TableHead>
                 </TableRow>
               </TableHeader>
@@ -162,16 +185,24 @@ export default function HomePage() {
                 {resultados.map((os) => (
                   <TableRow key={os.id}>
                     <TableCell>
-                      {new Date(os.dataAbertura.seconds * 1000).toLocaleDateString()}
-                    </TableCell>
-                    <TableCell>
-                      <Link href={`/os/${os.id}`} className="font-medium text-primary hover:underline">
+                      <Link
+                        href={`/os/${os.id}`}
+                        className="font-medium text-primary hover:underline"
+                      >
                         {os.numeroOS}
                       </Link>
                     </TableCell>
-                    <TableCell>{os.status}</TableCell>
+                    <TableCell>
+                      {os.dataFechamento
+                        ? new Date(
+                            os.dataFechamento.seconds * 1000
+                          ).toLocaleDateString()
+                        : new Date(
+                            os.dataAbertura.seconds * 1000
+                          ).toLocaleDateString()}
+                    </TableCell>
+                    <TableCell>{getGarantiaStatus(os)}</TableCell>
                     <TableCell>{os.nomeCliente}</TableCell>
-                    <TableCell>{os.servicosDescricao || "N/A"}</TableCell>
                     <TableCell>R$ {os.valorTotal.toFixed(2)}</TableCell>
                   </TableRow>
                 ))}

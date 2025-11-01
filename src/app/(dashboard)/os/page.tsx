@@ -5,10 +5,21 @@ import { useState, useEffect } from "react";
 import { useForm, useFieldArray } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { collection, addDoc, onSnapshot, runTransaction, doc } from "firebase/firestore"; 
+// IMPORTAÇÕES CORRIGIDAS: Adicionado getDocs, query, where
+import {
+  collection,
+  addDoc,
+  onSnapshot,
+  runTransaction,
+  doc,
+  Timestamp,
+  getDocs,
+  query,
+  where,
+} from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { cn } from "@/lib/utils";
-import { Check, ChevronsUpDown, Trash2 } from "lucide-react"; // Ícones
+import { Check, ChevronsUpDown, Trash2 } from "lucide-react";
 import Link from "next/link";
 
 // --- Importações dos componentes Shadcn ---
@@ -37,12 +48,12 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select"; // <-- NOVO
+} from "@/components/ui/select";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
-} from "@/components/ui/popover"; // <-- NOVO
+} from "@/components/ui/popover";
 import {
   Command,
   CommandEmpty,
@@ -50,8 +61,8 @@ import {
   CommandInput,
   CommandItem,
   CommandList,
-} from "@/components/ui/command"; // <-- NOVO
-import { Textarea } from "@/components/ui/textarea"; // <-- NOVO
+} from "@/components/ui/command";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Table,
   TableBody,
@@ -62,7 +73,6 @@ import {
 } from "@/components/ui/table";
 
 // --- Tipos de Dados (Interfaces) ---
-// (Reaproveitando as que já definimos mentalmente)
 interface Cliente {
   id: string;
   nome: string;
@@ -77,67 +87,68 @@ interface Produto {
 interface OrdemDeServico {
   id: string;
   numeroOS: number;
-  dataAbertura: { seconds: number }; // Formato do Firestore Timestamp
+  dataAbertura: { seconds: number };
   nomeCliente: string;
   placaVeiculo: string;
   status: "aberta" | "finalizada" | "cancelada";
   valorTotal: number;
 }
 
-// --- Schema de Validação ZOD para o Formulário ---
+// --- Schema de Validação ZOD (COM CAMPO GARANTIA) ---
 const osFormSchema = z.object({
   clienteId: z.string().min(1, "Selecione um cliente."),
-  veiculoPlaca: z.string().min(3, "Informe a placa."), // Simplificado
+  veiculoPlaca: z.string().min(3, "Informe a placa."),
   veiculoModelo: z.string().optional(),
   servicosDescricao: z.string().optional(),
-  // Array de itens. É aqui que o useFieldArray vai atuar
-  itens: z.array(
-    z.object({
-      id: z.string(), // ID do produto no Firebase
-      nome: z.string(),
-      qtde: z.coerce.number().min(1, "Qtde deve ser 1+"),
-      precoUnitario: z.coerce.number(),
-      tipo: z.enum(["peca", "servico"]),
-      estoqueAtual: z.number(), // Para sabermos o estoque
-    })
-  ).min(1, "Adicione pelo menos um item ou serviço."), // Pelo menos 1 item na OS
+  garantiaDias: z.coerce.number().int().min(0).default(0),
+  itens: z
+    .array(
+      z.object({
+        id: z.string(),
+        nome: z.string(),
+        qtde: z.coerce.number().min(1, "Qtde deve ser 1+"),
+        precoUnitario: z.coerce.number(),
+        tipo: z.enum(["peca", "servico"]),
+        estoqueAtual: z.number(),
+      })
+    )
+    .min(1, "Adicione pelo menos um item ou serviço."),
 });
 
 export default function OsPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
-  
-  // --- Estados para guardar os dados do Firebase ---
+
   const [ordensDeServico, setOrdensDeServico] = useState<OrdemDeServico[]>([]);
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [produtos, setProdutos] = useState<Produto[]>([]);
-  
-  // Popover do Combobox de produtos
+
   const [isComboboxOpen, setIsComboboxOpen] = useState(false);
 
   // --- Efeito para Buscar TODOS os dados ---
   useEffect(() => {
-    // 1. Buscar Ordens de Serviço (para a tabela principal)
+    // 1. Buscar Ordens de Serviço
     const unsubOS = onSnapshot(collection(db, "ordensDeServico"), (snapshot) => {
       setOrdensDeServico(
-        snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as OrdemDeServico))
+        snapshot.docs.map(
+          (doc) => ({ id: doc.id, ...doc.data() } as OrdemDeServico)
+        )
       );
     });
 
-    // 2. Buscar Clientes (para o <Select> do formulário)
+    // 2. Buscar Clientes
     const unsubClientes = onSnapshot(collection(db, "clientes"), (snapshot) => {
       setClientes(
-        snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Cliente))
+        snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as Cliente))
       );
     });
 
-    // 3. Buscar Produtos (para o <Combobox> do formulário)
+    // 3. Buscar Produtos
     const unsubProdutos = onSnapshot(collection(db, "produtos"), (snapshot) => {
       setProdutos(
-        snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Produto))
+        snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as Produto))
       );
     });
 
-    // Função de limpeza para "desligar" os ouvintes
     return () => {
       unsubOS();
       unsubClientes();
@@ -153,64 +164,99 @@ export default function OsPage() {
       veiculoPlaca: "",
       veiculoModelo: "",
       servicosDescricao: "",
+      garantiaDias: 90,
       itens: [],
     },
   });
 
-  // Gerenciador do array de itens (aqui está a mágica)
-  const { fields, append, remove } = useFieldArray({
+  // CORREÇÃO 1: Adicionado "update" do useFieldArray
+  const { fields, append, remove, update } = useFieldArray({
     control: form.control,
     name: "itens",
   });
 
-  // Função para adicionar um produto na OS
+  // CORREÇÃO 2: Função "adicionarProduto" agora soma quantidade
   const adicionarProduto = (produto: Produto) => {
-    // Verifica se o item já está na lista
-    const itemExistente = fields.find(field => field.id === produto.id);
-    if (itemExistente) {
-      // TODO: Incrementar a quantidade (futura melhoria)
-      console.log("Item já adicionado");
-      return;
+    // Procura o índice do item no carrinho
+    const itemIndex = fields.findIndex((field) => field.id === produto.id);
+
+    if (itemIndex > -1) {
+      // --- SE O ITEM JÁ EXISTE ---
+      const item = fields[itemIndex];
+      const novaQtde = item.qtde + 1;
+
+      // Validação de estoque
+      if (produto.tipo === "peca" && novaQtde > produto.estoqueAtual) {
+        alert(
+          `Estoque máximo (${produto.estoqueAtual}) atingido para ${produto.nome}.`
+        );
+        return;
+      }
+      // Atualiza a quantidade do item existente
+      update(itemIndex, { ...item, qtde: novaQtde });
+    } else {
+      // --- SE O ITEM É NOVO ---
+      // Adiciona o novo item ao array
+      append({
+        id: produto.id,
+        nome: produto.nome,
+        qtde: 1,
+        precoUnitario: produto.precoVenda,
+        tipo: produto.tipo,
+        estoqueAtual: produto.estoqueAtual,
+      });
     }
-    // Adiciona o novo item ao array do formulário
-    append({
-      id: produto.id,
-      nome: produto.nome,
-      qtde: 1,
-      precoUnitario: produto.precoVenda,
-      tipo: produto.tipo,
-      estoqueAtual: produto.estoqueAtual
-    });
+    // Fecha o popover em ambos os casos
+    setIsComboboxOpen(false);
   };
-  
-  // Calcula o valor total da OS em tempo real
-  const valorTotalOS = fields.reduce((total, item) => {
+
+  // CORREÇÃO 3: Usar "form.watch" para o total recalcular em tempo real
+  const watchedItens = form.watch("itens");
+  const valorTotalOS = watchedItens.reduce((total, item) => {
     return total + (item.precoUnitario * item.qtde);
   }, 0);
 
-  // --- FUNÇÃO DE SALVAR A OS (A MAIS IMPORTANTE) ---
+  // --- FUNÇÃO DE SALVAR A OS (COM VERIFICAÇÃO DE DUPLICADA) ---
   async function onSubmit(values: z.infer<typeof osFormSchema>) {
-    const clienteSelecionado = clientes.find(c => c.id === values.clienteId);
-    if (!clienteSelecionado) {
-      console.error("Cliente não encontrado");
-      // TODO: Mostrar toast de erro
+    
+    // --- CORREÇÃO 4: Verificação de OS aberta ---
+    try {
+      const q = query(
+        collection(db, "ordensDeServico"),
+        where("clienteId", "==", values.clienteId),
+        where("status", "==", "aberta")
+      );
+      
+      const querySnapshot = await getDocs(q);
+      
+      if (!querySnapshot.empty) {
+        alert("Erro: Este cliente já possui uma Ordem de Serviço em aberto. Finalize a OS anterior ('Frente de Caixa') antes de criar uma nova.");
+        return; // Para a execução
+      }
+    } catch (error) {
+      console.error("Erro ao verificar OS existente:", error);
+      alert("Erro ao verificar OS existente. Tente novamente.");
       return;
     }
-    
-    // 1. Dados para salvar na coleção 'ordensDeServico'
+    // --- Fim da verificação ---
+
+    const clienteSelecionado = clientes.find((c) => c.id === values.clienteId);
+    if (!clienteSelecionado) {
+      console.error("Cliente não encontrado");
+      return;
+    }
+
     const novaOS = {
-      // TODO: Criar um contador de OS no Firebase (futura melhoria)
-      numeroOS: Math.floor(Math.random() * 10000) + 1, 
+      numeroOS: Math.floor(Math.random() * 10000) + 1,
       dataAbertura: new Date(),
       status: "aberta" as "aberta",
-      // Copiamos os dados para facilitar a leitura na tabela
       clienteId: values.clienteId,
       nomeCliente: clienteSelecionado.nome,
       veiculoPlaca: values.veiculoPlaca.toUpperCase(),
       veiculoModelo: values.veiculoModelo,
       servicosDescricao: values.servicosDescricao,
-      // Mapeamos os itens para um formato mais limpo
-      itens: values.itens.map(item => ({
+      garantiaDias: values.garantiaDias,
+      itens: values.itens.map((item) => ({
         id: item.id,
         nome: item.nome,
         qtde: item.qtde,
@@ -221,38 +267,32 @@ export default function OsPage() {
     };
 
     try {
-      // 2. USAMOS UMA TRANSAÇÃO (Segurança Máxima)
-      // Isso garante que só vamos salvar a OS se conseguirmos atualizar o estoque.
-      // Se a atualização do estoque falhar, a OS inteira é cancelada (rollback).
       await runTransaction(db, async (transaction) => {
-        // Passo A: Salva a nova Ordem de Serviço
         const osRef = doc(collection(db, "ordensDeServico"));
         transaction.set(osRef, novaOS);
 
-        // Passo B: Atualiza o estoque de cada item (apenas se for 'peca')
         for (const item of values.itens) {
           if (item.tipo === "peca") {
             const produtoRef = doc(db, "produtos", item.id);
             const novoEstoque = item.estoqueAtual - item.qtde;
-            
-            // Validação de segurança
+
             if (novoEstoque < 0) {
-              throw new Error(`Estoque insuficiente para ${item.nome}. Restam ${item.estoqueAtual}.`);
+              throw new Error(
+                `Estoque insuficiente para ${item.nome}. Restam ${item.estoqueAtual}.`
+              );
             }
-            
+
             transaction.update(produtoRef, { estoqueAtual: novoEstoque });
           }
         }
       });
 
       console.log("OS salva e estoque atualizado com sucesso!");
-      // TODO: Mostrar toast de sucesso
       form.reset();
       setIsModalOpen(false);
-
     } catch (error: any) {
       console.error("Erro na transação: ", error);
-      // TODO: Mostrar toast de erro (ex: error.message)
+      alert(error.message);
     }
   }
 
@@ -260,12 +300,12 @@ export default function OsPage() {
     <div>
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-4xl font-bold">Ordens de Serviço</h1>
-        
+
         <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
           <DialogTrigger asChild>
             <Button>Criar Nova OS</Button>
           </DialogTrigger>
-          <DialogContent className="sm:max-w-3xl"> 
+          <DialogContent className="sm:max-w-3xl">
             <DialogHeader>
               <DialogTitle>Criar Nova Ordem de Serviço</DialogTitle>
               <DialogDescription>
@@ -276,7 +316,6 @@ export default function OsPage() {
             {/* --- INÍCIO DO FORMULÁRIO --- */}
             <Form {...form}>
               <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-                
                 {/* --- SEÇÃO: CLIENTE E VEÍCULO --- */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <FormField
@@ -285,14 +324,17 @@ export default function OsPage() {
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Cliente</FormLabel>
-                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                        <Select
+                          onValueChange={field.onChange}
+                          defaultValue={field.value}
+                        >
                           <FormControl>
                             <SelectTrigger>
                               <SelectValue placeholder="Selecione um cliente" />
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            {clientes.map(cliente => (
+                            {clientes.map((cliente) => (
                               <SelectItem key={cliente.id} value={cliente.id}>
                                 {cliente.nome}
                               </SelectItem>
@@ -331,28 +373,48 @@ export default function OsPage() {
                   />
                 </div>
 
-                {/* --- SEÇÃO: DESCRIÇÃO DOS SERVIÇOS --- */}
-                <FormField
-                  control={form.control}
-                  name="servicosDescricao"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Descrição dos Serviços / Observações</FormLabel>
-                      <FormControl>
-                        <Textarea
-                          placeholder="Descreva os serviços a serem realizados ou observações sobre o veículo..."
-                          {...field}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                {/* --- SEÇÃO: DESCRIÇÃO E GARANTIA --- */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <FormField
+                    control={form.control}
+                    name="servicosDescricao"
+                    render={({ field }) => (
+                      <FormItem className="md:col-span-2">
+                        <FormLabel>
+                          Descrição dos Serviços / Observações
+                        </FormLabel>
+                        <FormControl>
+                          <Textarea
+                            placeholder="Descreva os serviços a serem realizados ou observações sobre o veículo..."
+                            {...field}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="garantiaDias"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Garantia (dias)</FormLabel>
+                        <FormControl>
+                          <Input type="number" placeholder="Ex: 90" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
 
                 {/* --- SEÇÃO: ADICIONAR ITENS (PEÇAS/SERVIÇOS) --- */}
                 <div>
                   <FormLabel>Adicionar Peças e Serviços</FormLabel>
-                  <Popover open={isComboboxOpen} onOpenChange={setIsComboboxOpen}>
+                  <Popover
+                    open={isComboboxOpen}
+                    onOpenChange={setIsComboboxOpen}
+                  >
                     <PopoverTrigger asChild>
                       <Button
                         variant="outline"
@@ -374,19 +436,21 @@ export default function OsPage() {
                                 key={produto.id}
                                 value={produto.nome}
                                 onSelect={() => {
-                                  adicionarProduto(produto);
-                                  setIsComboboxOpen(false);
+                                  adicionarProduto(produto); // Função corrigida
                                 }}
                               >
                                 <Check
                                   className={cn(
                                     "mr-2 h-4 w-4",
-                                    fields.some(item => item.id === produto.id)
+                                    fields.some(
+                                      (item) => item.id === produto.id
+                                    )
                                       ? "opacity-100"
                                       : "opacity-0"
                                   )}
                                 />
-                                {produto.nome} ({produto.tipo}) - Estoque: {produto.estoqueAtual}
+                                {produto.nome} ({produto.tipo}) - Estoque:{" "}
+                                {produto.estoqueAtual}
                               </CommandItem>
                             ))}
                           </CommandGroup>
@@ -394,9 +458,11 @@ export default function OsPage() {
                       </Command>
                     </PopoverContent>
                   </Popover>
-                  <FormMessage>{form.formState.errors.itens?.message}</FormMessage>
+                  <FormMessage>
+                    {form.formState.errors.itens?.message}
+                  </FormMessage>
                 </div>
-                
+
                 {/* --- SEÇÃO: ITENS ADICIONADOS --- */}
                 <div className="rounded-md border">
                   <Table>
@@ -421,7 +487,6 @@ export default function OsPage() {
                         <TableRow key={item.id}>
                           <TableCell>{item.nome}</TableCell>
                           <TableCell>
-                            {/* Input de Quantidade (controlado) */}
                             <FormField
                               control={form.control}
                               name={`itens.${index}.qtde`}
@@ -430,13 +495,16 @@ export default function OsPage() {
                                   type="number"
                                   className="h-8"
                                   {...field}
-                                  // Validação de estoque
                                   onChange={(e) => {
-                                    const novaQtde = parseInt(e.target.value) || 0;
-                                    if(item.tipo === 'peca' && novaQtde > item.estoqueAtual) {
-                                      form.setError(`itens.${index}.qtde`, { 
-                                        type: 'manual', 
-                                        message: `Max: ${item.estoqueAtual}`
+                                    const novaQtde =
+                                      parseInt(e.target.value) || 0;
+                                    if (
+                                      item.tipo === "peca" &&
+                                      novaQtde > item.estoqueAtual
+                                    ) {
+                                      form.setError(`itens.${index}.qtde`, {
+                                        type: "manual",
+                                        message: `Max: ${item.estoqueAtual}`,
                                       });
                                     } else {
                                       form.clearErrors(`itens.${index}.qtde`);
@@ -446,16 +514,25 @@ export default function OsPage() {
                                 />
                               )}
                             />
-                            <FormMessage>{form.formState.errors.itens?.[index]?.qtde?.message}</FormMessage>
+                            <FormMessage>
+                              {
+                                form.formState.errors.itens?.[index]?.qtde
+                                  ?.message
+                              }
+                            </FormMessage>
                           </TableCell>
-                          <TableCell>R$ {item.precoUnitario.toFixed(2)}</TableCell>
-                          <TableCell>R$ {(item.precoUnitario * item.qtde).toFixed(2)}</TableCell>
+                          <TableCell>
+                            R$ {item.precoUnitario.toFixed(2)}
+                          </TableCell>
+                          <TableCell>
+                            R$ {(item.precoUnitario * item.qtde).toFixed(2)}
+                          </TableCell>
                           <TableCell>
                             <Button
                               type="button"
                               variant="destructive"
                               size="icon-sm"
-                              onClick={() => remove(index)} // Remove o item
+                              onClick={() => remove(index)}
                             >
                               <Trash2 className="h-4 w-4" />
                             </Button>
@@ -466,7 +543,7 @@ export default function OsPage() {
                   </Table>
                 </div>
 
-                {/* --- SEÇÃO: TOTAL --- */}
+                {/* --- SEÇÃO: TOTAL (AGORA ATUALIZA SOZINHO) --- */}
                 <div className="flex justify-end">
                   <h2 className="text-2xl font-bold">
                     Total da OS: R$ {valorTotalOS.toFixed(2)}
@@ -474,17 +551,17 @@ export default function OsPage() {
                 </div>
 
                 <DialogFooter>
-                  <Button 
-                    type="submit" 
-                    disabled={form.formState.isSubmitting} // Desativa o botão enquanto salva
+                  <Button
+                    type="submit"
+                    disabled={form.formState.isSubmitting}
                   >
-                    {form.formState.isSubmitting ? "Salvando..." : "Salvar Ordem de Serviço"}
+                    {form.formState.isSubmitting
+                      ? "Salvando..."
+                      : "Salvar Ordem de Serviço"}
                   </Button>
                 </DialogFooter>
               </form>
             </Form>
-            {/* --- FIM DO FORMULÁRIO --- */}
-            
           </DialogContent>
         </Dialog>
       </div>
@@ -507,16 +584,27 @@ export default function OsPage() {
             {ordensDeServico.map((os) => (
               <TableRow key={os.id}>
                 <TableCell>
-                <Link href={`/os/${os.id}`} className="font-medium text-primary hover:underline">
-                  {os.numeroOS}
-                </Link>
-              </TableCell>
+                  <Link
+                    href={`/os/${os.id}`}
+                    className="font-medium text-primary hover:underline"
+                  >
+                    {os.numeroOS}
+                  </Link>
+                </TableCell>
                 <TableCell className="font-medium">{os.nomeCliente}</TableCell>
                 <TableCell>{os.placaVeiculo}</TableCell>
-                <TableCell>{new Date(os.dataAbertura.seconds * 1000).toLocaleDateString()}</TableCell>
+                <TableCell>
+                  {new Date(
+                    os.dataAbertura.seconds * 1000
+                  ).toLocaleDateString()}
+                </TableCell>
                 <TableCell>{os.status}</TableCell>
                 <TableCell>R$ {os.valorTotal.toFixed(2)}</TableCell>
-                <TableCell>{/* TODO: Botões de Ver/Editar */}</TableCell>
+                <TableCell>
+                  <Button asChild variant="outline" size="sm">
+                    <Link href={`/os/${os.id}`}>Ver Detalhes</Link>
+                  </Button>
+                </TableCell>
               </TableRow>
             ))}
           </TableBody>
