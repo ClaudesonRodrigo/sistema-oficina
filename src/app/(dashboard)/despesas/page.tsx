@@ -48,16 +48,26 @@ interface Movimentacao {
 // --- Schema de Validação ZOD (CORRIGIDO) ---
 const despesaSchema = z.object({
   descricao: z.string().min(3, "Descreva a despesa."),
+  
   // CORREÇÃO: Substituído z.coerce.number() por z.preprocess + z.number()
+  // Isso corrige o erro de build do Netlify
   valor: z.preprocess(
     (val) => {
-      if (typeof val === 'string') return parseFloat(val.replace(',', '.'));
-      if (typeof val === 'number') return val;
-      return undefined; // Isso vai falhar a validação se não for um número
+      // Tenta converter o valor (que pode ser string ou num) para um número
+      if (typeof val === 'string') {
+        // Substitui vírgula por ponto para o parseFloat
+        return parseFloat(val.replace(',', '.'));
+      }
+      if (typeof val === 'number') {
+        return val;
+      }
+      return undefined; // Retorna undefined se não for um número
     },
+    // Agora sim, valida o número
     z.number({ invalid_type_error: "Valor deve ser um número."})
      .min(0.01, "O valor deve ser maior que zero.")
   ),
+
   formaPagamento: z.enum(["pix", "dinheiro", "cartao_debito"]),
 });
 
@@ -100,7 +110,7 @@ export default function DespesasPage() {
     defaultValues: {
       descricao: "",
       // O valor agora é 'undefined' para o placeholder do Input funcionar
-      // valor: 0,
+      // valor: 0, 
       formaPagamento: "dinheiro",
     },
   });
@@ -153,6 +163,7 @@ export default function DespesasPage() {
                   <FormItem className="w-full md:w-auto">
                     <FormLabel>Valor (R$)</FormLabel>
                     <FormControl>
+                      {/* Mudamos para type="text" para aceitar vírgula, o Zod vai tratar */}
                       <Input type="text" placeholder="25,50" {...field} />
                     </FormControl>
                     <FormMessage />
