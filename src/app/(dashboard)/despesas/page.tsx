@@ -45,10 +45,19 @@ interface Movimentacao {
   formaPagamento: string;
 }
 
-// --- Schema de Validação ZOD para a Despesa ---
+// --- Schema de Validação ZOD (CORRIGIDO) ---
 const despesaSchema = z.object({
   descricao: z.string().min(3, "Descreva a despesa."),
-  valor: z.coerce.number().min(0.01, "O valor deve ser maior que zero."),
+  // CORREÇÃO: Substituído z.coerce.number() por z.preprocess + z.number()
+  valor: z.preprocess(
+    (val) => {
+      if (typeof val === 'string') return parseFloat(val.replace(',', '.'));
+      if (typeof val === 'number') return val;
+      return undefined; // Isso vai falhar a validação se não for um número
+    },
+    z.number({ invalid_type_error: "Valor deve ser um número."})
+     .min(0.01, "O valor deve ser maior que zero.")
+  ),
   formaPagamento: z.enum(["pix", "dinheiro", "cartao_debito"]),
 });
 
@@ -60,14 +69,12 @@ export default function DespesasPage() {
   useEffect(() => {
     setLoading(true);
     
-    // Define o início e o fim do dia de hoje
     const hoje = new Date();
     const inicioDoDia = new Date(hoje.setHours(0, 0, 0, 0));
     const fimDoDia = new Date(hoje.setHours(23, 59, 59, 999));
 
     const movRef = collection(db, "movimentacoes");
     
-    // Query para buscar apenas: tipo == "saida" E data >= inicioDoDia E data <= fimDoDia
     const q = query(
       movRef,
       where("tipo", "==", "saida"),
@@ -84,15 +91,16 @@ export default function DespesasPage() {
       setLoading(false);
     });
 
-    return () => unsub(); // Limpa o "ouvinte"
+    return () => unsub();
   }, []);
 
   // --- Configuração do Formulário de Despesa ---
   const form = useForm<z.infer<typeof despesaSchema>>({
-    resolver: zodResolver(despesaSchema),
+    resolver: zodResolver(despesaSchema), // Linha 92 (agora correta)
     defaultValues: {
       descricao: "",
-      valor: 0,
+      // O valor agora é 'undefined' para o placeholder do Input funcionar
+      // valor: 0,
       formaPagamento: "dinheiro",
     },
   });
@@ -100,7 +108,6 @@ export default function DespesasPage() {
   // --- Função de Salvar Despesa ---
   async function onSubmit(values: z.infer<typeof despesaSchema>) {
     try {
-      // Cria o novo documento de "saida"
       await addDoc(collection(db, "movimentacoes"), {
         data: new Date(),
         tipo: "saida",
@@ -110,12 +117,10 @@ export default function DespesasPage() {
       });
 
       console.log("Despesa registrada com sucesso!");
-      // TODO: Adicionar toast de sucesso
       form.reset();
 
     } catch (error) {
       console.error("Erro ao registrar despesa:", error);
-      // TODO: Adicionar toast de erro
     }
   }
 
@@ -148,7 +153,7 @@ export default function DespesasPage() {
                   <FormItem className="w-full md:w-auto">
                     <FormLabel>Valor (R$)</FormLabel>
                     <FormControl>
-                      <Input type="number" step="0.01" placeholder="25,50" {...field} />
+                      <Input type="text" placeholder="25,50" {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
