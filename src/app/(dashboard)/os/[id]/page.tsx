@@ -115,9 +115,9 @@ export default function OsDetailPage() {
   }
 
   return (
-    <div className="print-container">/page.tsx"]
+    <div className="print-container">
       {/* --- Cabeçalho com botões --- */}
-      <div className="flex justify-between items-center mb-6 no-print">/page.tsx"]
+      <div className="flex justify-between items-center mb-6 no-print">
         <Button variant="outline" onClick={() => router.push("/os")}>
           <ArrowLeft className="mr-2 h-4 w-4" /> Voltar para lista
         </Button>
@@ -130,7 +130,7 @@ export default function OsDetailPage() {
       </div>
 
       {/* --- Conteúdo da OS --- */}
-      <Card id="os-receipt">/page.tsx"]
+      <Card id="os-receipt">
         <CardContent className="p-6">
           {/* Dados do Cliente e Veículo */}
           <div className="grid grid-cols-3 gap-4 mb-6">

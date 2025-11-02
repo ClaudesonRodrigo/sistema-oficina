@@ -80,6 +80,7 @@ interface Cliente {
 interface Produto {
   id: string;
   nome: string;
+  precoCusto: number; // <-- Adicionado pela Dica 1
   precoVenda: number;
   estoqueAtual: number;
   tipo: "peca" | "servico";
@@ -94,7 +95,7 @@ interface OrdemDeServico {
   valorTotal: number;
 }
 
-// --- Schema de Validação ZOD (COM CAMPO GARANTIA) ---
+// --- Schema de Validação ZOD (COM CAMPO GARANTIA E CUSTO) ---
 const osFormSchema = z.object({
   clienteId: z.string().min(1, "Selecione um cliente."),
   veiculoPlaca: z.string().min(3, "Informe a placa."),
@@ -107,7 +108,8 @@ const osFormSchema = z.object({
         id: z.string(),
         nome: z.string(),
         qtde: z.coerce.number().min(1, "Qtde deve ser 1+"),
-        precoUnitario: z.coerce.number(),
+        precoCusto: z.coerce.number(), // <-- Adicionado pela Dica 1
+        precoUnitario: z.coerce.number(), // (Preço de Venda)
         tipo: z.enum(["peca", "servico"]),
         estoqueAtual: z.number(),
       })
@@ -117,16 +119,13 @@ const osFormSchema = z.object({
 
 export default function OsPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
-
   const [ordensDeServico, setOrdensDeServico] = useState<OrdemDeServico[]>([]);
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [produtos, setProdutos] = useState<Produto[]>([]);
-
   const [isComboboxOpen, setIsComboboxOpen] = useState(false);
 
   // --- Efeito para Buscar TODOS os dados ---
   useEffect(() => {
-    // 1. Buscar Ordens de Serviço
     const unsubOS = onSnapshot(collection(db, "ordensDeServico"), (snapshot) => {
       setOrdensDeServico(
         snapshot.docs.map(
@@ -134,21 +133,16 @@ export default function OsPage() {
         )
       );
     });
-
-    // 2. Buscar Clientes
     const unsubClientes = onSnapshot(collection(db, "clientes"), (snapshot) => {
       setClientes(
         snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as Cliente))
       );
     });
-
-    // 3. Buscar Produtos
     const unsubProdutos = onSnapshot(collection(db, "produtos"), (snapshot) => {
       setProdutos(
         snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as Produto))
       );
     });
-
     return () => {
       unsubOS();
       unsubClientes();
@@ -164,51 +158,75 @@ export default function OsPage() {
       veiculoPlaca: "",
       veiculoModelo: "",
       servicosDescricao: "",
-      garantiaDias: 90,
+      garantiaDias: 90, // <-- Campo da Garantia
       itens: [],
     },
   });
 
+  // CORREÇÃO 1: Adicionado "update" do useFieldArray
   const { fields, append, remove, update } = useFieldArray({
     control: form.control,
     name: "itens",
   });
 
+  // CORREÇÃO 2: Função "adicionarProduto" agora soma quantidade E ADICIONA CUSTO
   const adicionarProduto = (produto: Produto) => {
     const itemIndex = fields.findIndex((field) => field.id === produto.id);
 
     if (itemIndex > -1) {
+      // --- SE O ITEM JÁ EXISTE ---
       const item = fields[itemIndex];
       const novaQtde = item.qtde + 1;
 
+      // Validação de estoque (só para 'peca')
       if (produto.tipo === "peca" && novaQtde > produto.estoqueAtual) {
         alert(
           `Estoque máximo (${produto.estoqueAtual}) atingido para ${produto.nome}.`
         );
         return;
       }
+      // Atualiza a quantidade do item existente
       update(itemIndex, { ...item, qtde: novaQtde });
     } else {
+      // --- SE O ITEM É NOVO ---
+      // Adiciona o novo item ao array
       append({
         id: produto.id,
         nome: produto.nome,
         qtde: 1,
+        precoCusto: produto.precoCusto, // <-- SALVA O CUSTO (Dica 1)
         precoUnitario: produto.precoVenda,
         tipo: produto.tipo,
         estoqueAtual: produto.estoqueAtual,
       });
     }
+    // Fecha o popover em ambos os casos
     setIsComboboxOpen(false);
   };
 
+  // CORREÇÃO 3: Usar "form.watch" para o total recalcular em tempo real
   const watchedItens = form.watch("itens");
+  // CALCULA O TOTAL DE VENDA
   const valorTotalOS = watchedItens.reduce((total, item) => {
-    return total + (item.precoUnitario * (item.qtde || 0)); // Garante que qtde não seja NaN
+    const quantidade = item.qtde || 0; 
+    return total + (item.precoUnitario * quantidade);
+  }, 0);
+  
+  // NOVO (Dica 1): CALCULA O CUSTO TOTAL
+  const custoTotalOS = watchedItens.reduce((total, item) => {
+    const quantidade = item.qtde || 0;
+    // Soma o custo apenas se for 'peca'
+    if (item.tipo === 'peca') {
+      return total + (item.precoCusto * quantidade);
+    }
+    return total;
   }, 0);
 
-  // --- FUNÇÃO DE SALVAR A OS (COM VERIFICAÇÃO DE DUPLICADA) ---
+
+  // --- FUNÇÃO ON SUBMIT (COM VERIFICAÇÃO DE DUPLICADA E CUSTO) ---
   async function onSubmit(values: z.infer<typeof osFormSchema>) {
     
+    // --- CORREÇÃO 4: Verificação de OS aberta ---
     try {
       const q = query(
         collection(db, "ordensDeServico"),
@@ -220,13 +238,14 @@ export default function OsPage() {
       
       if (!querySnapshot.empty) {
         alert("Erro: Este cliente já possui uma Ordem de Serviço em aberto. Finalize a OS anterior ('Frente de Caixa') antes de criar uma nova.");
-        return; 
+        return; // Para a execução
       }
     } catch (error) {
       console.error("Erro ao verificar OS existente:", error);
       alert("Erro ao verificar OS existente. Tente novamente.");
       return;
     }
+    // --- Fim da verificação ---
 
     const clienteSelecionado = clientes.find((c) => c.id === values.clienteId);
     if (!clienteSelecionado) {
@@ -243,38 +262,35 @@ export default function OsPage() {
       veiculoPlaca: values.veiculoPlaca.toUpperCase(),
       veiculoModelo: values.veiculoModelo,
       servicosDescricao: values.servicosDescricao,
-      garantiaDias: values.garantiaDias,
+      garantiaDias: values.garantiaDias, // <-- Campo da Garantia
       itens: values.itens.map((item) => ({
         id: item.id,
         nome: item.nome,
         qtde: item.qtde,
+        precoCusto: item.precoCusto, // <-- SALVA O CUSTO NO ITEM (Dica 1)
         precoUnitario: item.precoUnitario,
         tipo: item.tipo,
       })),
       valorTotal: valorTotalOS,
+      custoTotal: custoTotalOS, // <-- SALVA O CUSTO TOTAL NA OS (Dica 1)
     };
 
     try {
       await runTransaction(db, async (transaction) => {
         const osRef = doc(collection(db, "ordensDeServico"));
         transaction.set(osRef, novaOS);
-
         for (const item of values.itens) {
+          // CORREÇÃO: Só atualiza estoque se for 'peca'
           if (item.tipo === "peca") {
             const produtoRef = doc(db, "produtos", item.id);
             const novoEstoque = item.estoqueAtual - item.qtde;
-
             if (novoEstoque < 0) {
-              throw new Error(
-                `Estoque insuficiente para ${item.nome}. Restam ${item.estoqueAtual}.`
-              );
+              throw new Error(`Estoque insuficiente para ${item.nome}.`);
             }
-
             transaction.update(produtoRef, { estoqueAtual: novoEstoque });
           }
         }
       });
-
       console.log("OS salva e estoque atualizado com sucesso!");
       form.reset();
       setIsModalOpen(false);
@@ -288,7 +304,6 @@ export default function OsPage() {
     <div>
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-4xl font-bold">Ordens de Serviço</h1>
-
         <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
           <DialogTrigger asChild>
             <Button>Criar Nova OS</Button>
@@ -300,11 +315,8 @@ export default function OsPage() {
                 Preencha os dados do cliente, veículo e os serviços/peças.
               </DialogDescription>
             </DialogHeader>
-
-            {/* --- INÍCIO DO FORMULÁRIO --- */}
             <Form {...form}>
               <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-                {/* --- SEÇÃO: CLIENTE E VEÍCULO --- */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <FormField
                     control={form.control}
@@ -312,10 +324,7 @@ export default function OsPage() {
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Cliente</FormLabel>
-                        <Select
-                          onValueChange={field.onChange}
-                          defaultValue={field.value}
-                        >
+                        <Select onValueChange={field.onChange} defaultValue={field.value}>
                           <FormControl>
                             <SelectTrigger>
                               <SelectValue placeholder="Selecione um cliente" />
@@ -360,17 +369,13 @@ export default function OsPage() {
                     )}
                   />
                 </div>
-
-                {/* --- SEÇÃO: DESCRIÇÃO E GARANTIA --- */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <FormField
                     control={form.control}
                     name="servicosDescricao"
                     render={({ field }) => (
                       <FormItem className="md:col-span-2">
-                        <FormLabel>
-                          Descrição dos Serviços / Observações
-                        </FormLabel>
+                        <FormLabel>Descrição dos Serviços / Observações</FormLabel>
                         <FormControl>
                           <Textarea
                             placeholder="Descreva os serviços a serem realizados ou observações sobre o veículo..."
@@ -395,20 +400,11 @@ export default function OsPage() {
                     )}
                   />
                 </div>
-
-                {/* --- SEÇÃO: ADICIONAR ITENS (PEÇAS/SERVIÇOS) --- */}
                 <div>
                   <FormLabel>Adicionar Peças e Serviços</FormLabel>
-                  <Popover
-                    open={isComboboxOpen}
-                    onOpenChange={setIsComboboxOpen}
-                  >
+                  <Popover open={isComboboxOpen} onOpenChange={setIsComboboxOpen}>
                     <PopoverTrigger asChild>
-                      <Button
-                        variant="outline"
-                        role="combobox"
-                        className="w-full justify-between mt-2"
-                      >
+                      <Button variant="outline" role="combobox" className="w-full justify-between mt-2">
                         Selecione um item...
                         <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                       </Button>
@@ -423,22 +419,14 @@ export default function OsPage() {
                               <CommandItem
                                 key={produto.id}
                                 value={produto.nome}
-                                onSelect={() => {
-                                  adicionarProduto(produto);
-                                }}
+                                onSelect={() => { adicionarProduto(produto); }}
                               >
                                 <Check
-                                  className={cn(
-                                    "mr-2 h-4 w-4",
-                                    fields.some(
-                                      (item) => item.id === produto.id
-                                    )
-                                      ? "opacity-100"
-                                      : "opacity-0"
-                                  )}
+                                  className={cn("mr-2 h-4 w-4", fields.some((item) => item.id === produto.id) ? "opacity-100" : "opacity-0")}
                                 />
-                                {produto.nome} ({produto.tipo}) - Estoque:{" "}
-                                {produto.estoqueAtual}
+                                {produto.nome} ({produto.tipo})
+                                {produto.tipo === "peca" &&
+                                  ` - Estoque: ${produto.estoqueAtual}`}
                               </CommandItem>
                             ))}
                           </CommandGroup>
@@ -446,12 +434,8 @@ export default function OsPage() {
                       </Command>
                     </PopoverContent>
                   </Popover>
-                  <FormMessage>
-                    {form.formState.errors.itens?.message}
-                  </FormMessage>
+                  <FormMessage>{form.formState.errors.itens?.message}</FormMessage>
                 </div>
-
-                {/* --- SEÇÃO: ITENS ADICIONADOS --- */}
                 <div className="rounded-md border">
                   <Table>
                     <TableHeader>
@@ -466,9 +450,7 @@ export default function OsPage() {
                     <TableBody>
                       {fields.length === 0 && (
                         <TableRow>
-                          <TableCell colSpan={5} className="text-center">
-                            Nenhum item adicionado.
-                          </TableCell>
+                          <TableCell colSpan={5} className="text-center">Nenhum item adicionado.</TableCell>
                         </TableRow>
                       )}
                       {fields.map((item, index) => (
@@ -484,12 +466,9 @@ export default function OsPage() {
                                   className="h-8"
                                   {...field}
                                   onChange={(e) => {
-                                    const novaQtde =
-                                      parseInt(e.target.value) || 0;
-                                    if (
-                                      item.tipo === "peca" &&
-                                      novaQtde > item.estoqueAtual
-                                    ) {
+                                    const novaQtde = parseInt(e.target.value) || 0;
+                                    // CORREÇÃO: Só valida estoque se for 'peca'
+                                    if (item.tipo === "peca" && novaQtde > item.estoqueAtual) {
                                       form.setError(`itens.${index}.qtde`, {
                                         type: "manual",
                                         message: `Max: ${item.estoqueAtual}`,
@@ -502,26 +481,13 @@ export default function OsPage() {
                                 />
                               )}
                             />
-                            <FormMessage>
-                              {
-                                form.formState.errors.itens?.[index]?.qtde
-                                  ?.message
-                              }
-                            </FormMessage>
+                            <FormMessage>{form.formState.errors.itens?.[index]?.qtde?.message}</FormMessage>
                           </TableCell>
+                          <TableCell>R$ {item.precoUnitario.toFixed(2)}</TableCell>
+                          {/* CORREÇÃO: Garante que qtde não seja NaN */}
+                          <TableCell>R$ {(item.precoUnitario * (item.qtde || 0)).toFixed(2)}</TableCell>
                           <TableCell>
-                            R$ {item.precoUnitario.toFixed(2)}
-                          </TableCell>
-                          <TableCell>
-                            R$ {(item.precoUnitario * (item.qtde || 0)).toFixed(2)}
-                          </TableCell>
-                          <TableCell>
-                            <Button
-                              type="button"
-                              variant="destructive"
-                              size="icon-sm"
-                              onClick={() => remove(index)}
-                            >
+                            <Button type="button" variant="destructive" size="icon-sm" onClick={() => remove(index)}>
                               <Trash2 className="h-4 w-4" />
                             </Button>
                           </TableCell>
@@ -530,22 +496,18 @@ export default function OsPage() {
                     </TableBody>
                   </Table>
                 </div>
-
-                {/* --- SEÇÃO: TOTAL (AGORA ATUALIZA SOZINHO) --- */}
-                <div className="flex justify-end">
+                {/* --- TOTAL E CUSTO (Dica 1) --- */}
+                <div className="flex justify-between items-center">
+                  <h2 className="text-lg font-medium text-gray-600">
+                    Custo Peças: R$ {custoTotalOS.toFixed(2)}
+                  </h2>
                   <h2 className="text-2xl font-bold">
                     Total da OS: R$ {valorTotalOS.toFixed(2)}
                   </h2>
                 </div>
-
                 <DialogFooter>
-                  <Button
-                    type="submit"
-                    disabled={form.formState.isSubmitting}
-                  >
-                    {form.formState.isSubmitting
-                      ? "Salvando..."
-                      : "Salvar Ordem de Serviço"}
+                  <Button type="submit" disabled={form.formState.isSubmitting}>
+                    {form.formState.isSubmitting ? "Salvando..." : "Salvar Ordem de Serviço"}
                   </Button>
                 </DialogFooter>
               </form>
@@ -553,8 +515,6 @@ export default function OsPage() {
           </DialogContent>
         </Dialog>
       </div>
-
-      {/* --- TABELA PRINCIPAL DE ORDENS DE SERVIÇO --- */}
       <div className="rounded-md border">
         <Table>
           <TableHeader>

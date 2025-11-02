@@ -25,6 +25,7 @@ import {
   FormControl,
   FormField,
   FormItem,
+  FormLabel,
   FormMessage,
 } from "@/components/ui/form";
 import {
@@ -37,7 +38,7 @@ import {
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
-// --- Interface para os resultados da busca ---
+// --- Interfaces ---
 interface ResultadoOS {
   id: string;
   numeroOS: number;
@@ -50,38 +51,59 @@ interface ResultadoOS {
   valorTotal: number;
   garantiaDias?: number;
 }
-
-// --- Interface para o Resumo do Caixa ---
+interface ResultadoProduto {
+  id: string;
+  nome: string;
+  codigoSku: string;
+  precoVenda: number;
+  estoqueAtual: number;
+  tipo: "peca" | "servico";
+}
+// --- INTERFACE DO RESUMO ATUALIZADA ---
 interface ResumoCaixa {
-  entradas: number;
+  faturamentoBruto: number;
+  custoPecas: number;
+  lucroBruto: number;
   saidas: number;
-  saldo: number;
+  lucroLiquido: number;
 }
 
-// --- Schema de Validação do formulário de busca ---
-const searchSchema = z.object({
+// --- Schemas de Validação ---
+const placaSearchSchema = z.object({
   placa: z.string().min(3, { message: "Digite pelo menos 3 caracteres da placa." }),
+});
+const produtoSearchSchema = z.object({
+  codigoSku: z.string().min(1, { message: "Digite o código do produto." }),
 });
 
 export default function HomePage() {
   const { userData } = useAuth();
   const isAdmin = userData?.role === 'admin';
+  
+  // --- ESTADO DO RESUMO ATUALIZADO ---
   const [resumoCaixa, setResumoCaixa] = useState<ResumoCaixa>({
-    entradas: 0,
+    faturamentoBruto: 0,
+    custoPecas: 0,
+    lucroBruto: 0,
     saidas: 0,
-    saldo: 0,
+    lucroLiquido: 0,
   });
   const [loadingCaixa, setLoadingCaixa] = useState(true);
 
-  const [resultados, setResultados] = useState<ResultadoOS[]>([]);
-  const [loadingBusca, setLoadingBusca] = useState(false);
-  const [searched, setSearched] = useState(false);
+  // Estados da Busca por Placa
+  const [resultadosPlaca, setResultadosPlaca] = useState<ResultadoOS[]>([]);
+  const [loadingPlaca, setLoadingPlaca] = useState(false);
+  const [searchedPlaca, setSearchedPlaca] = useState(false);
 
-  // --- Efeito para buscar movimentações (só Admin) ---
+  // Estados para Busca de Produto
+  const [produtoResultado, setProdutoResultado] = useState<ResultadoProduto | null>(null);
+  const [loadingProduto, setLoadingProduto] = useState(false);
+  const [searchedProduto, setSearchedProduto] = useState(false);
+
+  // --- EFEITO PARA BUSCAR MOVIMENTAÇÕES (ATUALIZADO) ---
   useEffect(() => {
     if (isAdmin) {
       setLoadingCaixa(true);
-      
       const hoje = new Date();
       const inicioDoDia = new Date(hoje.setHours(0, 0, 0, 0));
       const fimDoDia = new Date(hoje.setHours(23, 59, 59, 999));
@@ -94,46 +116,53 @@ export default function HomePage() {
       );
 
       const unsub = onSnapshot(q, (snapshot) => {
-        let entradas = 0;
+        let faturamentoBruto = 0;
+        let custoPecas = 0;
         let saidas = 0;
 
         snapshot.forEach((doc) => {
           const data = doc.data();
           if (data.tipo === "entrada") {
-            entradas += data.valor;
+            faturamentoBruto += data.valor;
+            custoPecas += data.custo || 0; // Soma o custo (se existir)
           } else if (data.tipo === "saida") {
             saidas += data.valor;
           }
         });
 
+        const lucroBruto = faturamentoBruto - custoPecas;
+        const lucroLiquido = lucroBruto - saidas;
+
         setResumoCaixa({
-          entradas: entradas,
-          saidas: saidas,
-          saldo: entradas - saidas,
+          faturamentoBruto,
+          custoPecas,
+          lucroBruto,
+          saidas,
+          lucroLiquido,
         });
         setLoadingCaixa(false);
       });
-
       return () => unsub();
     } else {
       setLoadingCaixa(false); 
     }
   }, [isAdmin]);
 
-  // --- Configuração do Formulário de Busca ---
-  const form = useForm<z.infer<typeof searchSchema>>({
-    resolver: zodResolver(searchSchema),
-    defaultValues: {
-      placa: "",
-    },
+  // --- Configuração dos Formulários ---
+  const formBuscaPlaca = useForm<z.infer<typeof placaSearchSchema>>({
+    resolver: zodResolver(placaSearchSchema),
+    defaultValues: { placa: "" },
+  });
+  const formBuscaProduto = useForm<z.infer<typeof produtoSearchSchema>>({
+    resolver: zodResolver(produtoSearchSchema),
+    defaultValues: { codigoSku: "" },
   });
 
   // --- Função de Busca por Placa ---
-  async function onSubmit(values: z.infer<typeof searchSchema>) {
-    setLoadingBusca(true);
-    setSearched(true);
-    setResultados([]);
-
+  async function onPlacaSubmit(values: z.infer<typeof placaSearchSchema>) {
+    setLoadingPlaca(true);
+    setSearchedPlaca(true);
+    setResultadosPlaca([]);
     try {
       const osRef = collection(db, "ordensDeServico");
       const q = query(
@@ -141,23 +170,45 @@ export default function HomePage() {
         where("veiculoPlaca", "==", values.placa.toUpperCase()),
         orderBy("dataAbertura", "desc")
       );
-
       const querySnapshot = await getDocs(q);
-
       const listaResultados: ResultadoOS[] = [];
       querySnapshot.forEach((doc) => {
         listaResultados.push({ id: doc.id, ...doc.data() } as ResultadoOS);
       });
-
-      setResultados(listaResultados);
+      setResultadosPlaca(listaResultados);
     } catch (error) {
       console.error("Erro ao buscar OS por placa: ", error);
     } finally {
-      setLoadingBusca(false);
+      setLoadingPlaca(false);
     }
   }
 
-  // --- Função de Garantia ---
+  // --- Função de Busca por Produto (SKU) ---
+  async function onProdutoSubmit(values: z.infer<typeof produtoSearchSchema>) {
+    setLoadingProduto(true);
+    setSearchedProduto(true);
+    setProdutoResultado(null);
+    try {
+      const prodRef = collection(db, "produtos");
+      const q = query(
+        prodRef,
+        where("codigoSku", "==", values.codigoSku.toUpperCase())
+      );
+      const querySnapshot = await getDocs(q);
+      if (querySnapshot.empty) {
+        setProdutoResultado(null);
+      } else {
+        const doc = querySnapshot.docs[0];
+        setProdutoResultado({ id: doc.id, ...doc.data() } as ResultadoProduto);
+      }
+    } catch (error) {
+      console.error("Erro ao buscar produto por SKU: ", error);
+    } finally {
+      setLoadingProduto(false);
+    }
+  }
+
+  // --- Função de Garantia (sem mudanças) ---
   const getGarantiaStatus = (os: ResultadoOS) => {
     if (os.status !== 'finalizada' || !os.dataFechamento) {
       return <span className="text-gray-500 capitalize">{os.status}</span>;
@@ -178,49 +229,77 @@ export default function HomePage() {
 
   return (
     <div>
-      {/* --- Resumo do Caixa (Só Admin) --- */}
+      {/* --- RESUMO DO CAIXA (SÓ ADMIN) - ATUALIZADO --- */}
       {isAdmin && (
         <div className="mb-12">
           <h1 className="text-4xl font-bold mb-6">Resumo do Dia</h1>
-          <div className="grid gap-4 md:grid-cols-3">
+          {/* Grid agora com 5 colunas */}
+          <div className="grid gap-4 md:grid-cols-5">
+            {/* Card Faturamento Bruto */}
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Entradas (Hoje)</CardTitle>
+                <CardTitle className="text-sm font-medium">Faturamento Bruto (Hoje)</CardTitle>
               </CardHeader>
               <CardContent>
-                {loadingCaixa ? (
-                  <p>Carregando...</p>
-                ) : (
-                  <div className="text-2xl font-bold text-green-600">
-                    R$ {resumoCaixa.entradas.toFixed(2)}
+                {loadingCaixa ? (<p>Carregando...</p>) : (
+                  <div className="text-2xl font-bold text-blue-600">
+                    R$ {resumoCaixa.faturamentoBruto.toFixed(2)}
                   </div>
                 )}
               </CardContent>
             </Card>
+            
+            {/* Card Custo de Peças */}
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Saídas (Hoje)</CardTitle>
+                <CardTitle className="text-sm font-medium">Custo Peças (Vendido)</CardTitle>
               </CardHeader>
               <CardContent>
-                {loadingCaixa ? (
-                  <p>Carregando...</p>
-                ) : (
+                {loadingCaixa ? (<p>Carregando...</p>) : (
+                  <div className="text-2xl font-bold text-gray-500">
+                    R$ {resumoCaixa.custoPecas.toFixed(2)}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Card Lucro Bruto */}
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Lucro Bruto (Hoje)</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {loadingCaixa ? (<p>Carregando...</p>) : (
+                  <div className="text-2xl font-bold text-green-600">
+                    R$ {resumoCaixa.lucroBruto.toFixed(2)}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Card Despesas (Saídas) */}
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Despesas (Hoje)</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {loadingCaixa ? (<p>Carregando...</p>) : (
                   <div className="text-2xl font-bold text-red-600">
                     R$ {resumoCaixa.saidas.toFixed(2)}
                   </div>
                 )}
               </CardContent>
             </Card>
+
+            {/* Card Lucro Líquido */}
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Saldo em Caixa (Hoje)</CardTitle>
+                <CardTitle className="text-sm font-medium">Lucro Líquido (Hoje)</CardTitle>
               </CardHeader>
               <CardContent>
-                {loadingCaixa ? (
-                  <p>Carregando...</p>
-                ) : (
+                {loadingCaixa ? (<p>Carregando...</p>) : (
                   <div className="text-2xl font-bold">
-                    R$ {resumoCaixa.saldo.toFixed(2)}
+                    R$ {resumoCaixa.lucroLiquido.toFixed(2)}
                   </div>
                 )}
               </CardContent>
@@ -229,21 +308,78 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* --- CONSULTA DE GARANTIA (EXISTENTE) --- */}
-      <div className="mt-8">
+      {/* --- CONSULTA DE PRODUTOS (SÓ ADMIN) --- */}
+      {isAdmin && (
+        <div className="mt-8 border-t pt-8">
+          <h1 className="text-4xl font-bold mb-6">Consulta Rápida de Produto</h1>
+          <Form {...formBuscaProduto}>
+            <form onSubmit={formBuscaProduto.handleSubmit(onProdutoSubmit)} className="flex gap-4 mb-8">
+              <FormField
+                control={formBuscaProduto.control}
+                name="codigoSku"
+                render={({ field }) => (
+                  <FormItem className="flex-1">
+                    <FormControl>
+                      <Input
+                        placeholder="Digite o Código (SKU) do produto"
+                        {...field}
+                        className="text-lg p-6"
+                        autoComplete="off"
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <Button type="submit" disabled={loadingProduto} className="p-6 text-lg">
+                {loadingProduto ? "Buscando..." : "Buscar Produto"}
+              </Button>
+            </form>
+          </Form>
+
+          {loadingProduto && <p>Buscando produto...</p>}
+          {!loadingProduto && searchedProduto && !produtoResultado && (
+            <Card className="mt-4">
+              <CardContent className="pt-6">
+                <p className="text-center text-lg">Nenhum produto encontrado com este SKU.</p>
+              </CardContent>
+            </Card>
+          )}
+          {!loadingProduto && produtoResultado && (
+            <Card className="mt-4">
+              <CardHeader>
+                <CardTitle>{produtoResultado.nome} ({produtoResultado.codigoSku})</CardTitle>
+              </CardHeader>
+              <CardContent className="grid gap-4 md:grid-cols-2">
+                <div>
+                  <p className="font-medium">Estoque Atual:</p>
+                  <p className="text-2xl font-bold">
+                    {produtoResultado.tipo === 'peca' ? produtoResultado.estoqueAtual : 'N/A (Serviço)'}
+                  </p>
+                </div>
+                 <div>
+                  <p className="font-medium">Preço de Venda:</p>
+                  <p className="text-2xl font-bold">
+                    R$ {produtoResultado.precoVenda.toFixed(2)}
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      )}
+
+      {/* --- CONSULTA DE GARANTIA (PARA TODOS) --- */}
+      <div className="mt-12 border-t pt-8">
         <h1 className="text-4xl font-bold mb-6">Consulta Rápida de Garantia</h1>
         <p className="text-lg mb-4">
-          Digite a placa do veículo para ver o histórico completo de Ordens de
-          Serviço.
+          Digite a placa do veículo para ver o histórico completo.
         </p>
 
-        {/* --- Formulário de Busca (CORRIGIDO) --- */}
-        {/* O <Form> é o wrapper */}
-        <Form {...form}>
-          {/* O <form> recebe o onSubmit e o className */}
-          <form onSubmit={form.handleSubmit(onSubmit)} className="flex gap-4 mb-8">
+        <Form {...formBuscaPlaca}>
+          <form onSubmit={formBuscaPlaca.handleSubmit(onPlacaSubmit)} className="flex gap-4 mb-8">
             <FormField
-              control={form.control}
+              control={formBuscaPlaca.control}
               name="placa"
               render={({ field }) => (
                 <FormItem className="flex-1">
@@ -259,16 +395,15 @@ export default function HomePage() {
                 </FormItem>
               )}
             />
-            <Button type="submit" disabled={loadingBusca} className="p-6 text-lg">
-              {loadingBusca ? "Buscando..." : "Buscar"}
+            <Button type="submit" disabled={loadingPlaca} className="p-6 text-lg">
+              {loadingPlaca ? "Buscando..." : "Buscar Placa"}
             </Button>
           </form>
         </Form>
 
-        {/* --- Área de Resultados --- */}
-        {loadingBusca && <p>Buscando histórico...</p>}
+        {loadingPlaca && <p>Buscando histórico...</p>}
 
-        {!loadingBusca && searched && resultados.length === 0 && (
+        {!loadingPlaca && searchedPlaca && resultadosPlaca.length === 0 && (
           <Card className="mt-4">
             <CardContent className="pt-6">
               <p className="text-center text-lg">
@@ -278,11 +413,11 @@ export default function HomePage() {
           </Card>
         )}
 
-        {!loadingBusca && resultados.length > 0 && (
+        {!loadingPlaca && resultadosPlaca.length > 0 && (
           <Card className="mt-4">
             <CardHeader>
               <CardTitle>
-                Histórico da Placa: {resultados[0].veiculoPlaca}
+                Histórico da Placa: {resultadosPlaca[0].veiculoPlaca}
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -297,7 +432,7 @@ export default function HomePage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {resultados.map((os) => (
+                  {resultadosPlaca.map((os) => (
                     <TableRow key={os.id}>
                       <TableCell>
                         <Link

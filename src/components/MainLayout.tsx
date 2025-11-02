@@ -8,13 +8,16 @@ import { auth } from '@/lib/firebase';
 import { LogOut } from 'lucide-react';
 import Link from 'next/link'; 
 
-// 1. ATUALIZAÇÃO: Adicionado o link "Lançar Despesas"
+// 1. ATUALIZAÇÃO: Adicionado o link "Relatórios"
 const menuItens = [
   { nome: 'Dashboard', href: '/', adminOnly: false },
   { nome: 'Ordens de Serviço', href: '/os', adminOnly: false },
   { nome: 'Frente de Caixa', href: '/caixa', adminOnly: false }, 
-  { nome: 'Lançar Despesas', href: '/despesas', adminOnly: true }, // <-- NOVO LINK (SÓ ADMIN)
+  { nome: 'Relatórios', href: '/relatorios', adminOnly: true }, // <-- NOVO LINK (SÓ ADMIN)
+  { nome: 'Lançar Despesas', href: '/despesas', adminOnly: true },
+  { nome: 'Entrada de Estoque', href: '/entrada-estoque', adminOnly: true },
   { nome: 'Clientes', href: '/clientes', adminOnly: true },
+  { nome: 'Fornecedores', href: '/fornecedores', adminOnly: true },
   { nome: 'Produtos (Peças)', href: '/produtos', adminOnly: true },
   { nome: 'Gerenciar Usuários', href: '/usuarios', adminOnly: true },
 ];
@@ -31,7 +34,8 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
         <div className="p-5 text-2xl font-bold text-center border-b border-gray-700">
           OficinaControl
         </div>
-        <nav className="flex-1 p-4 space-y-2">
+        {/* Adicionado overflow-y-auto para menus longos */}
+        <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
           
           {menuItens.map((item) => {
             if (!item.adminOnly) {

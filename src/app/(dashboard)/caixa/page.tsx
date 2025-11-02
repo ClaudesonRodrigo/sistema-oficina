@@ -13,7 +13,7 @@ import {
   query,
   where,
   Timestamp,
-  addDoc, // <-- 1. IMPORTAR addDoc
+  addDoc,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 
@@ -51,7 +51,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-// --- Interfaces ---
+// --- INTERFACE ATUALIZADA ---
 interface OrdemDeServico {
   id: string;
   numeroOS: number;
@@ -60,6 +60,7 @@ interface OrdemDeServico {
   placaVeiculo: string;
   status: "aberta" | "finalizada" | "cancelada";
   valorTotal: number;
+  custoTotal: number; // <-- NOVO CAMPO
 }
 
 // --- Schema de Validação ZOD para o pagamento ---
@@ -78,7 +79,6 @@ export default function CaixaPage() {
     setLoading(true);
     const osRef = collection(db, "ordensDeServico");
     
-    // Query para buscar apenas onde status == "aberta"
     const q = query(osRef, where("status", "==", "aberta"));
 
     const unsub = onSnapshot(q, (snapshot) => {
@@ -105,7 +105,7 @@ export default function CaixaPage() {
   async function onSubmit(values: z.infer<typeof pagamentoSchema>) {
     if (!selectedOS) return;
 
-    const dataFinalizacao = new Date(); // Pega a data e hora exata agora
+    const dataFinalizacao = new Date();
 
     try {
       // --- PASSO 1: ATUALIZAR A ORDEM DE SERVIÇO ---
@@ -113,18 +113,19 @@ export default function CaixaPage() {
       await updateDoc(osDocRef, {
         status: "finalizada",
         formaPagamento: values.formaPagamento,
-        dataFechamento: dataFinalizacao, // Salva a data de fechamento
+        dataFechamento: dataFinalizacao,
       });
       console.log("OS finalizada com sucesso!");
 
-      // --- PASSO 2 (NOVO): REGISTRAR "ENTRADA" NO LIVRO CAIXA ---
+      // --- PASSO 2: REGISTRAR "ENTRADA" NO LIVRO CAIXA (ATUALIZADO) ---
       await addDoc(collection(db, "movimentacoes"), {
-        data: dataFinalizacao, // Usa a mesma data da finalização
+        data: dataFinalizacao,
         tipo: "entrada",
         descricao: `Venda OS #${selectedOS.numeroOS}`,
         valor: selectedOS.valorTotal,
+        custo: selectedOS.custoTotal || 0, // <-- NOVO CAMPO (Custo da Venda)
         formaPagamento: values.formaPagamento,
-        referenciaId: selectedOS.id, // Link para a OS
+        referenciaId: selectedOS.id, 
       });
       console.log("Movimentação de entrada registrada!");
 
@@ -134,7 +135,6 @@ export default function CaixaPage() {
       
     } catch (error) {
       console.error("Erro ao finalizar OS e registrar movimentação:", error);
-      // TODO: Adicionar toast de erro
     }
   }
 
@@ -218,6 +218,11 @@ export default function CaixaPage() {
             <h3 className="text-3xl font-bold text-center mb-6">
               Total: R$ {selectedOS?.valorTotal.toFixed(2)}
             </h3>
+            {/* --- NOVO: MOSTRA O CUSTO (APENAS DEBUG, PODE REMOVER) ---
+            <p className="text-center text-sm text-gray-500 mb-4">
+              Custo Peças: R$ {selectedOS?.custoTotal.toFixed(2)}
+            </p>
+            */}
 
             <Form {...form}>
               <form id="pagamentoForm" onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
