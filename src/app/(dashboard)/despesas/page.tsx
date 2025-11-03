@@ -45,7 +45,7 @@ interface Movimentacao {
   formaPagamento: string;
 }
 
-// --- Schema de Validação ZOD (CORRIGIDO) ---
+// --- Schema de Validação ZOD (CORRIGIDO PARA BUILD) ---
 const despesaSchema = z.object({
   descricao: z.string().min(3, "Descreva a despesa."),
   
@@ -53,18 +53,22 @@ const despesaSchema = z.object({
   // Isso corrige o erro de build do Netlify
   valor: z.preprocess(
     (val) => {
-      // Tenta converter o valor (que pode ser string ou num) para um número
+      // Se for string (do input), limpa e converte
       if (typeof val === 'string') {
-        // Substitui vírgula por ponto para o parseFloat
-        return parseFloat(val.replace(',', '.'));
+        // Substitui vírgula por ponto (importante no Brasil) e converte
+        const num = parseFloat(val.replace(',', '.'));
+        // Se a conversão falhar (ex: "abc"), retorna NaN para o Zod pegar
+        return isNaN(num) ? undefined : num;
       }
+      // Se já for número, só repassa
       if (typeof val === 'number') {
         return val;
       }
-      return undefined; // Retorna undefined se não for um número
+      // Se for qualquer outra coisa (undefined, null), falha na validação
+      return undefined;
     },
     // Agora sim, valida o número
-    z.number({ invalid_type_error: "Valor deve ser um número."})
+    z.number({ required_error: "O valor é obrigatório.", invalid_type_error: "Valor deve ser um número."})
      .min(0.01, "O valor deve ser maior que zero.")
   ),
 
@@ -109,8 +113,6 @@ export default function DespesasPage() {
     resolver: zodResolver(despesaSchema), // Linha 92 (agora correta)
     defaultValues: {
       descricao: "",
-      // O valor agora é 'undefined' para o placeholder do Input funcionar
-      // valor: 0, 
       formaPagamento: "dinheiro",
     },
   });
