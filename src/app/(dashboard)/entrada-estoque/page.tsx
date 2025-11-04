@@ -225,20 +225,21 @@ export default function EntradaEstoquePage() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Fornecedor</FormLabel>
-                      <Select onValueChange={field.onChange} defaultValue={field.value}>
-                        <FormControl>
+                      {/* ✅ CORREÇÃO: FormControl agora envolve o Select inteiro */}
+                      <FormControl>
+                        <Select onValueChange={field.onChange} defaultValue={field.value}>
                           <SelectTrigger>
                             <SelectValue placeholder="Selecione um fornecedor" />
                           </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {fornecedores.map(f => (
-                            <SelectItem key={f.id} value={f.id}>
-                              {f.nome}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                          <SelectContent>
+                            {fornecedores.map(f => (
+                              <SelectItem key={f.id} value={f.id}>
+                                {f.nome}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -249,18 +250,19 @@ export default function EntradaEstoquePage() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Forma de Pagamento</FormLabel>
-                      <Select onValueChange={field.onChange} defaultValue={field.value}>
-                        <FormControl>
+                      {/* ✅ CORREÇÃO: FormControl agora envolve o Select inteiro */}
+                      <FormControl>
+                        <Select onValueChange={field.onChange} defaultValue={field.value}>
                           <SelectTrigger>
                             <SelectValue placeholder="Selecione..." />
                           </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          <SelectItem value="dinheiro">Dinheiro</SelectItem>
-                          <SelectItem value="pix">Pix</SelectItem>
-                          <SelectItem value="cartao_debito">Cartão de Débito</SelectItem>
-                        </SelectContent>
-                      </Select>
+                          <SelectContent>
+                            <SelectItem value="dinheiro">Dinheiro</SelectItem>
+                            <SelectItem value="pix">Pix</SelectItem>
+                            <SelectItem value="cartao_debito">Cartão de Débito</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
