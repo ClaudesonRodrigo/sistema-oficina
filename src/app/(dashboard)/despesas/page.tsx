@@ -70,7 +70,8 @@ const despesaSchema = z.object({
       return undefined;
     },
     // ===== AQUI ESTÁ A CORREÇÃO =====
-    // Removemos o "required_error" de dentro deste objeto
+    // Removemos o "required_error" de dentro deste objeto.
+    // O Zod já sabe que é obrigatório porque não usamos .optional()
     z.number({ 
       invalid_type_error: "Valor deve ser um número."
     })
