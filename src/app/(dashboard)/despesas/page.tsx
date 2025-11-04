@@ -46,51 +46,25 @@ interface Movimentacao {
 }
 
 // --- Schema de Validação ZOD (CORRIGIDO PARA BUILD) ---
+// --- Schema de Validação ZOD (versão final e estável) ---
+// --- Schema de Validação ZOD (versão final e compatível) ---
 const despesaSchema = z.object({
-  descricao: z.string().min(3, "Descreva a despesa."),
-  
-  // CORREÇÃO: Substituído z.coerce.number() por z.preprocess + z.number()
-  // Isso corrige o erro de build do Netlify
-  valor: z.preprocess(
-    (val) => {
-      // Se for string (do input), limpa e converte
-      if (typeof val === 'string') {
-        // Se a string estiver vazia, retorna undefined para o Zod tratar
-        if (val.trim() === "") return undefined;
-        // Substitui vírgula por ponto (importante no Brasil) e converte
-        const num = parseFloat(val.replace(',', '.'));
-        // Se a conversão falhar (ex: "abc"), retorna NaN para o Zod pegar
-        return isNaN(num) ? undefined : num;
-      }
-      // Se já for número, só repassa
-      if (typeof val === 'number') {
-        return val;
-      }
-      // Se for qualquer outra coisa (undefined, null), falha na validação
-      return undefined;
-    },
-    // ===== AQUI ESTÁ A CORREÇÃO =====
-    // Removemos o "required_error" de dentro deste objeto.
-    // O Zod já sabe que é obrigatório porque não usamos .optional()
-   z.preprocess(
-    (val) => {
-      if (typeof val === 'string') {
-        if (val.trim() === '') return undefined;
-        const num = parseFloat(val.replace(',', '.'));
-        return isNaN(num) ? undefined : num;
-      }
-      if (typeof val === 'number') return val;
-      return undefined;
-    },
-    z.number()
-    .min(0.01, "O valor deve ser maior que zero.")
-  )
+  descricao: z
+    .string()
+    .min(3, "Descreva a despesa."),
 
-    // ================================
-  ),
+  // ✅ Converte string automaticamente em número
+  // ✅ Funciona mesmo que o usuário digite "25,50"
+  valor: z.coerce
+    .number()
+    .pipe(
+      z.number().min(0.01, "O valor deve ser maior que zero.")
+    ),
 
   formaPagamento: z.enum(["pix", "dinheiro", "cartao_debito"]),
 });
+
+
 
 export default function DespesasPage() {
   const [despesasHoje, setDespesasHoje] = useState<Movimentacao[]>([]);
