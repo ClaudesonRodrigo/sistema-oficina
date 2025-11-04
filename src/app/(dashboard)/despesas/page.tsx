@@ -3,7 +3,7 @@
 
 import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
+import { zodResolver } from "@hookform/resolvers/zod"; // Importará a v3 após o Passo 1
 import { z } from "zod";
 import {
   collection,
@@ -75,9 +75,9 @@ const despesaSchema = z.object({
       // Se for qualquer outra coisa (undefined, null), falha na validação
       return undefined;
     },
-    // ✅ CORREÇÃO: Removemos o 'required_error' daqui.
-    // O Zod já sabe que é obrigatório (pois não tem .optional())
-    z.number().min(0.01, "O valor deve ser maior que zero.")
+    // ✅ CORREÇÃO 1: Removemos o 'required_error' daqui.
+    z.number()
+     .min(0.01, "O valor deve ser maior que zero.")
   ),
 
   formaPagamento: z.enum(["pix", "dinheiro", "cartao_debito"]),
@@ -118,10 +118,11 @@ export default function DespesasPage() {
 
   // --- Configuração do Formulário de Despesa ---
   const form = useForm<z.infer<typeof despesaSchema>>({
-    resolver: zodResolver(despesaSchema),
+    resolver: zodResolver(despesaSchema), 
     defaultValues: {
       descricao: "",
-      valor: undefined, // Começa como undefined para o placeholder funcionar
+      // ✅ CORREÇÃO 2: Trocamos 'undefined' por 'NaN' para alinhar os tipos
+      valor: NaN, 
       formaPagamento: "dinheiro",
     },
   });
@@ -177,7 +178,13 @@ export default function DespesasPage() {
                     <FormLabel>Valor (R$)</FormLabel>
                     <FormControl>
                       {/* O 'type=text' é importante para o preprocess tratar a vírgula */}
-                      <Input type="text" placeholder="25,50" {...field} />
+                      <Input 
+                        type="text" 
+                        placeholder="25,50" 
+                        {...field}
+                        // Isso garante que o NaN não apareça no campo
+                        value={isNaN(field.value) ? '' : field.value} 
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
