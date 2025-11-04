@@ -5,7 +5,14 @@ import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { collection, addDoc, onSnapshot, query, where, Timestamp } from "firebase/firestore";
+import {
+  collection,
+  addDoc,
+  onSnapshot,
+  query,
+  where,
+  Timestamp,
+} from "firebase/firestore";
 import { db } from "@/lib/firebase";
 
 // Componentes Shadcn
@@ -45,26 +52,36 @@ interface Movimentacao {
   formaPagamento: string;
 }
 
-// --- Schema de Validação ZOD (CORRIGIDO PARA BUILD) ---
-// --- Schema de Validação ZOD (versão final e estável) ---
-// --- Schema de Validação ZOD (versão final e compatível) ---
+// --- Schema de Validação ZOD (Corrigido para Netlify, mantendo a vírgula e o campo obrigatório) ---
 const despesaSchema = z.object({
-  descricao: z
-    .string()
-    .min(3, "Descreva a despesa."),
-
-  // ✅ Converte string automaticamente em número
-  // ✅ Funciona mesmo que o usuário digite "25,50"
-  valor: z.coerce
-    .number()
-    .pipe(
-      z.number().min(0.01, "O valor deve ser maior que zero.")
-    ),
+  descricao: z.string().min(3, "Descreva a despesa."),
+  
+  // Usamos o preprocess para tratar a vírgula (Ex: "25,50")
+  valor: z.preprocess(
+    (val) => {
+      // Se for string (do input), limpa e converte
+      if (typeof val === 'string') {
+        // Se a string estiver vazia, retorna undefined para o Zod tratar
+        if (val.trim() === "") return undefined;
+        // Substitui vírgula por ponto (importante no Brasil) e converte
+        const num = parseFloat(val.replace(',', '.'));
+        // Se a conversão falhar (ex: "abc"), retorna NaN para o Zod pegar
+        return isNaN(num) ? undefined : num;
+      }
+      // Se já for número, só repassa
+      if (typeof val === 'number') {
+        return val;
+      }
+      // Se for qualquer outra coisa (undefined, null), falha na validação
+      return undefined;
+    },
+    // ✅ CORREÇÃO: Removemos o 'required_error' daqui.
+    // O Zod já sabe que é obrigatório (pois não tem .optional())
+    z.number().min(0.01, "O valor deve ser maior que zero.")
+  ),
 
   formaPagamento: z.enum(["pix", "dinheiro", "cartao_debito"]),
 });
-
-
 
 export default function DespesasPage() {
   const [despesasHoje, setDespesasHoje] = useState<Movimentacao[]>([]);
@@ -73,13 +90,13 @@ export default function DespesasPage() {
   // --- Efeito para buscar as despesas de HOJE ---
   useEffect(() => {
     setLoading(true);
-    
+
     const hoje = new Date();
     const inicioDoDia = new Date(hoje.setHours(0, 0, 0, 0));
     const fimDoDia = new Date(hoje.setHours(23, 59, 59, 999));
 
     const movRef = collection(db, "movimentacoes");
-    
+
     const q = query(
       movRef,
       where("tipo", "==", "saida"),
@@ -101,10 +118,10 @@ export default function DespesasPage() {
 
   // --- Configuração do Formulário de Despesa ---
   const form = useForm<z.infer<typeof despesaSchema>>({
-    resolver: zodResolver(despesaSchema), // Linha 92 (agora correta)
+    resolver: zodResolver(despesaSchema),
     defaultValues: {
       descricao: "",
-      valor: undefined, // <-- CORREÇÃO: Inicializa como undefined para o placeholder
+      valor: undefined, // Começa como undefined para o placeholder funcionar
       formaPagamento: "dinheiro",
     },
   });
@@ -122,7 +139,6 @@ export default function DespesasPage() {
 
       console.log("Despesa registrada com sucesso!");
       form.reset();
-
     } catch (error) {
       console.error("Erro ao registrar despesa:", error);
     }
@@ -131,12 +147,15 @@ export default function DespesasPage() {
   return (
     <div>
       <h1 className="text-4xl font-bold mb-6">Lançar Despesas (Saídas)</h1>
-      
+
       {/* --- Formulário de Nova Despesa --- */}
       <Card className="mb-8">
         <CardContent className="pt-6">
           <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col md:flex-row gap-4 items-end">
+            <form
+              onSubmit={form.handleSubmit(onSubmit)}
+              className="flex flex-col md:flex-row gap-4 items-end"
+            >
               <FormField
                 control={form.control}
                 name="descricao"
@@ -157,7 +176,7 @@ export default function DespesasPage() {
                   <FormItem className="w-full md:w-auto">
                     <FormLabel>Valor (R$)</FormLabel>
                     <FormControl>
-                      {/* Mudamos para type="text" para aceitar vírgula, o Zod vai tratar */}
+                      {/* O 'type=text' é importante para o preprocess tratar a vírgula */}
                       <Input type="text" placeholder="25,50" {...field} />
                     </FormControl>
                     <FormMessage />
@@ -193,7 +212,6 @@ export default function DespesasPage() {
           </Form>
         </CardContent>
       </Card>
-
 
       {/* --- Tabela de Despesas de Hoje --- */}
       <h2 className="text-2xl font-bold mb-4">Despesas Registradas Hoje</h2>
