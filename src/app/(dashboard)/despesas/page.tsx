@@ -72,10 +72,20 @@ const despesaSchema = z.object({
     // ===== AQUI ESTÁ A CORREÇÃO =====
     // Removemos o "required_error" de dentro deste objeto.
     // O Zod já sabe que é obrigatório porque não usamos .optional()
-    z.number({ 
-      invalid_type_error: "Valor deve ser um número."
-    })
-     .min(0.01, "O valor deve ser maior que zero.")
+   z.preprocess(
+    (val) => {
+      if (typeof val === 'string') {
+        if (val.trim() === '') return undefined;
+        const num = parseFloat(val.replace(',', '.'));
+        return isNaN(num) ? undefined : num;
+      }
+      if (typeof val === 'number') return val;
+      return undefined;
+    },
+    z.number()
+    .min(0.01, "O valor deve ser maior que zero.")
+  )
+
     // ================================
   ),
 
