@@ -55,6 +55,8 @@ const despesaSchema = z.object({
     (val) => {
       // Se for string (do input), limpa e converte
       if (typeof val === 'string') {
+        // Se a string estiver vazia, retorna undefined para o Zod tratar
+        if (val.trim() === "") return undefined;
         // Substitui vírgula por ponto (importante no Brasil) e converte
         const num = parseFloat(val.replace(',', '.'));
         // Se a conversão falhar (ex: "abc"), retorna NaN para o Zod pegar
@@ -67,9 +69,13 @@ const despesaSchema = z.object({
       // Se for qualquer outra coisa (undefined, null), falha na validação
       return undefined;
     },
-    // Agora sim, valida o número
-    z.number({ required_error: "O valor é obrigatório.", invalid_type_error: "Valor deve ser um número."})
+    // ===== AQUI ESTÁ A CORREÇÃO =====
+    // Removemos o "required_error" de dentro deste objeto
+    z.number({ 
+      invalid_type_error: "Valor deve ser um número."
+    })
      .min(0.01, "O valor deve ser maior que zero.")
+    // ================================
   ),
 
   formaPagamento: z.enum(["pix", "dinheiro", "cartao_debito"]),
@@ -113,6 +119,7 @@ export default function DespesasPage() {
     resolver: zodResolver(despesaSchema), // Linha 92 (agora correta)
     defaultValues: {
       descricao: "",
+      valor: undefined, // <-- CORREÇÃO: Inicializa como undefined para o placeholder
       formaPagamento: "dinheiro",
     },
   });
@@ -124,7 +131,7 @@ export default function DespesasPage() {
         data: new Date(),
         tipo: "saida",
         descricao: values.descricao,
-        valor: values.valor,
+        valor: values.valor, // O Zod já garantiu que 'valor' é um número
         formaPagamento: values.formaPagamento,
       });
 
