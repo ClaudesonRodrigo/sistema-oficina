@@ -67,7 +67,12 @@ interface ItemOS {
 const formSchema = z.object({
   nome: z.string().min(3, { message: "O nome deve ter pelo menos 3 caracteres." }),
   codigoSku: z.string().optional(),
-  tipo: z.enum(["peca", "servico"], { required_error: "Selecione o tipo." }),
+  
+  // ===== AQUI ESTÁ A SUA CORREÇÃO APLICADA =====
+  // Simplificado para remover o objeto que causa o erro de build
+  tipo: z.enum(["peca", "servico"]),
+  // ============================================
+
   precoCusto: z.coerce.number().min(0, { message: "O custo deve ser positivo." }),
   precoVenda: z.coerce.number().min(0, { message: "O preço deve ser positivo." }),
   // Validação para tipo 'peca'

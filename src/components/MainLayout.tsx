@@ -7,6 +7,7 @@ import { Button } from './ui/button';
 import { auth } from '@/lib/firebase';
 import { LogOut } from 'lucide-react';
 import Link from 'next/link'; 
+import { z } from '../../node_modules/zod/v4/classic/external.cjs';
 
 // 1. ATUALIZAÇÃO: Adicionado o link "Relatórios"
 const menuItens = [
@@ -86,3 +87,22 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
     </div>
   );
 }
+// --- SCHEMA DO FORMULÁRIO ATUALIZADO ---
+export const formSchema = z.object({
+  nome: z.string().min(3, { message: "O nome deve ter pelo menos 3 caracteres." }),
+  codigoSku: z.string().optional(),
+  tipo: z.enum(["peca", "servico"], { required_error: "Selecione o tipo." }),
+  precoCusto: z.coerce.number().min(0, { message: "O custo deve ser positivo." }),
+  precoVenda: z.coerce.number().min(0, { message: "O preço deve ser positivo." }),
+  // Validação para tipo 'peca'
+  estoqueAtual: z.coerce.number().int({ message: "O estoque deve ser um número inteiro." }),
+}).refine((data) => {
+  // Se for 'servico', o estoque não importa (será 0), mas se for 'peca', deve ser >= 0
+  if (data.tipo === 'peca') {
+    return data.estoqueAtual >= 0;
+  }
+  return true;
+}, {
+  message: "Estoque deve ser 0 ou mais para peças.",
+  path: ["estoqueAtual"],
+});
