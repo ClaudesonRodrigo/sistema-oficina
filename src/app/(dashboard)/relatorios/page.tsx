@@ -60,12 +60,8 @@ interface ResumoCaixa {
 
 // --- Schema de Validação ZOD ---
 const reportSchema = z.object({
-  dataInicio: z.date({
-    required_error: "Data inicial é obrigatória.",
-  }),
-  dataFim: z.date({
-    required_error: "Data final é obrigatória.",
-  }),
+  dataInicio: z.date(),
+  dataFim: z.date(),
 });
 
 export default function RelatoriosPage() {
@@ -160,7 +156,7 @@ export default function RelatoriosPage() {
                           <Button
                             variant={"outline"}
                             className={cn(
-                              "w-[240px] pl-3 text-left font-normal",
+                              "w-60 pl-3 text-left font-normal",
                               !field.value && "text-muted-foreground"
                             )}
                           >
@@ -199,7 +195,7 @@ export default function RelatoriosPage() {
                           <Button
                             variant={"outline"}
                             className={cn(
-                              "w-[240px] pl-3 text-left font-normal",
+                              "w-60 pl-3 text-left font-normal",
                               !field.value && "text-muted-foreground"
                             )}
                           >
