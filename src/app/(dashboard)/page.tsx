@@ -17,6 +17,9 @@ import {
 } from "firebase/firestore";
 import { useAuth } from "@/context/AuthContext";
 
+// --- (1) NOVO IMPORT ADICIONADO ---
+import AlertaEstoque from "@/components/AlertaEstoque";
+
 // Componentes Shadcn
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -229,6 +232,10 @@ export default function HomePage() {
 
   return (
     <div>
+      
+      {/* --- (2) SESSÃO DE ALERTA ADICIONADA AQUI --- */}
+      {isAdmin && <AlertaEstoque />}
+
       {/* --- RESUMO DO CAIXA (SÓ ADMIN) - ATUALIZADO --- */}
       {isAdmin && (
         <div className="mb-12">
