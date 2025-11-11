@@ -1,0 +1,25 @@
+# Este é o comando de build padrão do seu Next.js
+[build]
+  command = "npm run build"
+  publish = ".next" # Pasta de publicação do Next.js
+
+# Esta é a parte que faltava: configurar as funções
+[functions]
+  # Diz ao Netlify onde estão seus arquivos .ts
+  directory = "netlify/functions"
+  
+  # Diz ao Netlify para usar o 'esbuild' para compilar
+  # automaticamente seus arquivos .ts para .js
+  node_bundler = "esbuild"
+
+# Esta é a configuração para rodar LOCALMENTE
+[dev]
+  # Comando para rodar o Next.js
+  command = "npm run dev"
+  # Porta do Next.js
+  targetPort = 3000
+  # Porta que o Netlify Dev vai usar (ex: 8888)
+  port = 8888
+  # Faz o Next.js rodar no framework correto
+  framework = "#static"
+  publish = ".next"
