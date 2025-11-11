@@ -2,7 +2,7 @@
 import { Handler, HandlerEvent } from "@netlify/functions";
 import * as admin from 'firebase-admin';
 
-// Interface para os dados que o frontend vai enviar
+// Interface
 interface OSData {
   novaOS: {
     numeroOS: number;
@@ -14,66 +14,87 @@ interface OSData {
     veiculoModelo: string;
     servicosDescricao: string;
     garantiaDias: number;
-    itens: any[]; // Itens simplificados para a OS
+    itens: any[];
     valorTotal: number;
     custoTotal: number;
   };
-  itens: any[]; // Itens completos do formulário (com estoqueAtual)
+  itens: any[];
 }
 
-// --- Configuração do Admin SDK (COM DECODE BASE64) ---
-if (!admin.apps.length) {
-  try {
-    // 1. Pega a chave codificada em Base64 da Netlify
-    const privateKeyBase64 = process.env.FIREBASE_PRIVATE_KEY!;
-    
-    // 2. Decodifica de Base64 para o formato de texto original (PEM)
-    const privateKey = Buffer.from(privateKeyBase64, 'base64').toString('utf8');
+let db: admin.firestore.Firestore;
+let initializationError: string | null = null;
 
+// --- Configuração do Admin SDK (Corrigida e com Debug) ---
+try {
+  // 1. Pega as variáveis
+  const projectId = process.env.FIREBASE_PROJECT_ID;
+  const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
+  const privateKeyBase64 = process.env.FIREBASE_PRIVATE_KEY;
+
+  // 2. DEBUG: Verifica se as variáveis existem
+  if (!projectId) throw new Error("Variável de ambiente FIREBASE_PROJECT_ID não foi encontrada.");
+  if (!clientEmail) throw new Error("Variável de ambiente FIREBASE_CLIENT_EMAIL não foi encontrada.");
+  if (!privateKeyBase64) throw new Error("Variável de ambiente FIREBASE_PRIVATE_KEY não foi encontrada.");
+
+  // 3. Decodifica a chave
+  const privateKey = Buffer.from(privateKeyBase64, 'base64').toString('utf8');
+
+  // 4. Inicializa o App
+  if (!admin.apps.length) {
     admin.initializeApp({
       credential: admin.credential.cert({
-        projectId: process.env.FIREBASE_PROJECT_ID,
-        clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-        privateKey: privateKey, // 3. Usa a chave decodificada
+        projectId: projectId,
+        clientEmail: clientEmail,
+        privateKey: privateKey,
       }),
     });
-  } catch (e) {
-    console.error("Erro ao inicializar Firebase Admin:", e);
+    console.log("Firebase Admin (criarOS) inicializado com SUCESSO.");
   }
+
+  // 5. Atribui os serviços
+  db = admin.firestore();
+
+} catch (e: any) {
+  // 6. SE FALHAR, guarda o erro
+  console.error("ERRO CRÍTICO AO INICIALIZAR FIREBASE ADMIN (criarOS):", e.message);
+  initializationError = e.message;
 }
 // --- Fim da Configuração ---
 
-const db = admin.firestore();
 
 const handler: Handler = async (event: HandlerEvent) => {
-  // 1. Apenas aceita requisições POST
+  // 7. Adiciona uma verificação no início do handler
+  if (!db || initializationError) {
+     const errorMsg = `ERRO: O Firebase Admin não foi inicializado. Causa: ${initializationError || "Erro desconhecido"}`;
+     console.error(errorMsg);
+     return {
+       statusCode: 500,
+       body: JSON.stringify({ error: errorMsg }),
+     };
+  }
+
+  // --- O resto da sua função ---
   if (event.httpMethod !== 'POST') {
     return { statusCode: 405, body: JSON.stringify({ error: 'Método não permitido' }) };
   }
 
-  // 2. Tenta executar a lógica de transação
   try {
     if (!event.body) {
       throw new Error("Corpo da requisição vazio.");
     }
     
     const { novaOS, itens } = JSON.parse(event.body) as OSData;
-
-    // 3. A LÓGICA DE TRANSAÇÃO NO SERVIDOR
+    
     await db.runTransaction(async (transaction) => {
-      // Converte a data (que vem como string no JSON) de volta para Timestamp do Firebase
       novaOS.dataAbertura = new Date(novaOS.dataAbertura);
       
       const osRef = db.collection("ordensDeServico").doc();
-      // Salva a OS principal
       transaction.set(osRef, novaOS);
       
-      // Itera nos itens para abater o estoque
       for (const item of itens) {
-        // Só mexe no estoque se for 'peca'
         if (item.tipo === "peca") {
           const produtoRef = db.collection("produtos").doc(item.id);
-          const produtoDoc = await transaction.get(produtoRef); // Lê o estoque ATUAL
+          const produtoDoc = await transaction.get(produtoRef);
 
           if (!produtoDoc.exists) {
             throw new Error(`Produto ${item.nome} (ID: ${item.id}) não foi encontrado no banco de dados.`);
@@ -82,18 +103,15 @@ const handler: Handler = async (event: HandlerEvent) => {
           const estoqueAtual = produtoDoc.data()!.estoqueAtual;
           const novoEstoque = estoqueAtual - item.qtde;
 
-          // Validação de segurança no backend
           if (novoEstoque < 0) {
             throw new Error(`Estoque insuficiente para ${item.nome}. Restam apenas ${estoqueAtual}.`);
           }
           
-          // Abate o estoque
           transaction.update(produtoRef, { estoqueAtual: novoEstoque });
         }
       }
     });
 
-    // 4. Retorna sucesso
     return {
       statusCode: 200,
       body: JSON.stringify({ message: "OS criada e estoque abatido com sucesso!" }),
@@ -101,7 +119,6 @@ const handler: Handler = async (event: HandlerEvent) => {
 
   } catch (error: any) {
     console.error("Erro na Netlify Function criarOS:", error);
-    // 5. Retorna o erro exato (ex: "Estoque insuficiente...")
     return {
       statusCode: 500,
       body: JSON.stringify({ error: error.message || "Erro interno do servidor." }),

@@ -2,57 +2,79 @@
 import { Handler } from "@netlify/functions";
 import * as admin from 'firebase-admin';
 
-// FUNÇÃO PARA RODAR UMA SÓ VEZ E CORRIGIR SEU ADMIN
+// (Deixei seu e-mail aqui, que vi no log anterior)
+const SEU_EMAIL_ADMIN = "claudesonborges@gmail.com";
 
-// COLOQUE O E-MAIL DO SEU USUÁRIO ADMIN PRINCIPAL AQUI
-const SEU_EMAIL_ADMIN = "claudesonborges@gmail.com"; // (Vi que você já atualizou aqui, ótimo!)
+let db: admin.firestore.Firestore;
+let auth: admin.auth.Auth;
+let initializationError: string | null = null;
 
-// --- Configuração do Admin SDK (COM DECODE BASE64) ---
-if (!admin.apps.length) {
-  try {
-    // 1. Pega a chave codificada em Base64 da Netlify
-    const privateKeyBase64 = process.env.FIREBASE_PRIVATE_KEY!;
-    
-    // 2. Decodifica de Base64 para o formato de texto original (PEM)
-    const privateKey = Buffer.from(privateKeyBase64, 'base64').toString('utf8');
+// --- Configuração do Admin SDK (Corrigida e com Debug) ---
+try {
+  // 1. Pega as variáveis
+  const projectId = process.env.FIREBASE_PROJECT_ID;
+  const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
+  const privateKeyBase64 = process.env.FIREBASE_PRIVATE_KEY;
 
+  // 2. DEBUG: Verifica se as variáveis existem ANTES de tentar usar
+  if (!projectId) throw new Error("Variável de ambiente FIREBASE_PROJECT_ID não foi encontrada.");
+  if (!clientEmail) throw new Error("Variável de ambiente FIREBASE_CLIENT_EMAIL não foi encontrada.");
+  if (!privateKeyBase64) throw new Error("Variável de ambiente FIREBASE_PRIVATE_KEY não foi encontrada.");
+
+  // 3. Decodifica a chave
+  const privateKey = Buffer.from(privateKeyBase64, 'base64').toString('utf8');
+
+  // 4. Inicializa o App (apenas se não foi inicializado)
+  if (!admin.apps.length) {
     admin.initializeApp({
       credential: admin.credential.cert({
-        projectId: process.env.FIREBASE_PROJECT_ID,
-        clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-        privateKey: privateKey, // 3. Usa a chave decodificada
+        projectId: projectId,
+        clientEmail: clientEmail,
+        privateKey: privateKey,
       }),
     });
-  } catch (e) {
-    console.error("Erro ao inicializar Firebase Admin:", e);
+    console.log("Firebase Admin (fixAdminClaim) inicializado com SUCESSO.");
   }
+
+  // 5. Atribui os serviços AGORA QUE TEMOS CERTEZA QUE FUNCIONOU
+  db = admin.firestore();
+  auth = admin.auth();
+
+} catch (e: any) {
+  // 6. SE FALHAR, guarda o erro
+  console.error("ERRO CRÍTICO AO INICIALIZAR FIREBASE ADMIN (fixAdminClaim):", e.message);
+  initializationError = e.message;
 }
 // --- Fim da Configuração ---
 
-const db = admin.firestore();
-const auth = admin.auth();
 
 const handler: Handler = async () => {
+  // 7. Adiciona uma verificação no início do handler
+  if (!auth || !db || initializationError) {
+     const errorMsg = `ERRO: O Firebase Admin não foi inicializado. Causa: ${initializationError || "Erro desconhecido"}`;
+     console.error(errorMsg);
+     return {
+       statusCode: 500,
+       body: JSON.stringify({ error: errorMsg }),
+     };
+  }
+  
+  // --- O resto da sua função ---
   if (!SEU_EMAIL_ADMIN.includes('@')) {
     return {
       statusCode: 500,
-      body: JSON.stringify({ error: "ERRO: Você não atualizou a variável SEU_EMAIL_ADMIN no topo do arquivo da função." }),
+      body: JSON.stringify({ error: "ERRO: A variável SEU_EMAIL_ADMIN no topo do arquivo da função está incorreta." }),
     };
   }
 
   try {
-    // 1. Encontra o usuário no Firebase Auth pelo e-mail
     console.log(`Buscando usuário: ${SEU_EMAIL_ADMIN}`);
     const user = await auth.getUserByEmail(SEU_EMAIL_ADMIN);
 
-    // 2. Define a "role: admin" na CHAVE DE ACESSO (Custom Claim)
     await auth.setCustomUserClaims(user.uid, { role: 'admin' });
     
-    // 3. Garante que no banco de dados também esteja correto
     const userDocRef = db.collection('usuarios').doc(user.uid);
-    await userDocRef.set({
-      role: 'admin'
-    }, { merge: true }); // 'merge: true' para não apagar outros dados
+    await userDocRef.set({ role: 'admin' }, { merge: true });
 
     console.log(`Sucesso! Usuário ${user.email} (UID: ${user.uid}) agora é admin no Token e no Firestore.`);
 
