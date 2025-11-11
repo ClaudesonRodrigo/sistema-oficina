@@ -1,3 +1,4 @@
+// netlify/functions/criarOS.ts
 import { Handler, HandlerEvent } from "@netlify/functions";
 import * as admin from 'firebase-admin';
 
@@ -20,22 +21,27 @@ interface OSData {
   itens: any[]; // Itens completos do formulário (com estoqueAtual)
 }
 
-// Inicializa o "Super-Admin" do Firebase
-// Ele só é inicializado uma vez, mesmo que a função "esquente"
+// --- Configuração do Admin SDK (COM DECODE BASE64) ---
 if (!admin.apps.length) {
   try {
+    // 1. Pega a chave codificada em Base64 da Netlify
+    const privateKeyBase64 = process.env.FIREBASE_PRIVATE_KEY!;
+    
+    // 2. Decodifica de Base64 para o formato de texto original (PEM)
+    const privateKey = Buffer.from(privateKeyBase64, 'base64').toString('utf8');
+
     admin.initializeApp({
       credential: admin.credential.cert({
         projectId: process.env.FIREBASE_PROJECT_ID,
         clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-        // Corrige a formatação da chave privada lida do Netlify
-        privateKey: process.env.FIREBASE_PRIVATE_KEY!.replace(/\\n/g, '\n'),
+        privateKey: privateKey, // 3. Usa a chave decodificada
       }),
     });
   } catch (e) {
     console.error("Erro ao inicializar Firebase Admin:", e);
   }
 }
+// --- Fim da Configuração ---
 
 const db = admin.firestore();
 
@@ -53,10 +59,7 @@ const handler: Handler = async (event: HandlerEvent) => {
     
     const { novaOS, itens } = JSON.parse(event.body) as OSData;
 
-    // 3. A MESMA LÓGICA DE TRANSAÇÃO, MAS AGORA NO SERVIDOR!
-    // Como estamos usando o Admin SDK, as "Regras do Firestore" são ignoradas
-    // para esta função, permitindo que ela atualize o estoque.
-    
+    // 3. A LÓGICA DE TRANSAÇÃO NO SERVIDOR
     await db.runTransaction(async (transaction) => {
       // Converte a data (que vem como string no JSON) de volta para Timestamp do Firebase
       novaOS.dataAbertura = new Date(novaOS.dataAbertura);

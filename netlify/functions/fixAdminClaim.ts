@@ -5,16 +5,22 @@ import * as admin from 'firebase-admin';
 // FUNÇÃO PARA RODAR UMA SÓ VEZ E CORRIGIR SEU ADMIN
 
 // COLOQUE O E-MAIL DO SEU USUÁRIO ADMIN PRINCIPAL AQUI
-const SEU_EMAIL_ADMIN = "claudesonborges@gmail.com";
+const SEU_EMAIL_ADMIN = "claudesonborges@gmail.com"; // (Vi que você já atualizou aqui, ótimo!)
 
-// --- Configuração do Admin SDK (igual à outra função) ---
+// --- Configuração do Admin SDK (COM DECODE BASE64) ---
 if (!admin.apps.length) {
   try {
+    // 1. Pega a chave codificada em Base64 da Netlify
+    const privateKeyBase64 = process.env.FIREBASE_PRIVATE_KEY!;
+    
+    // 2. Decodifica de Base64 para o formato de texto original (PEM)
+    const privateKey = Buffer.from(privateKeyBase64, 'base64').toString('utf8');
+
     admin.initializeApp({
       credential: admin.credential.cert({
         projectId: process.env.FIREBASE_PROJECT_ID,
         clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-        privateKey: process.env.FIREBASE_PRIVATE_KEY!.replace(/\\n/g, '\n'),
+        privateKey: privateKey, // 3. Usa a chave decodificada
       }),
     });
   } catch (e) {
