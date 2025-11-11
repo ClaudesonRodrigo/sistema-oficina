@@ -5,13 +5,12 @@ import { useState, useEffect } from "react";
 import { useForm, useFieldArray } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-// IMPORTAÇÕES ATUALIZADAS: Removemos 'runTransaction' e 'Timestamp'
-// Adicionamos 'getDocs', 'query', 'where'
 import {
   collection,
   addDoc,
   onSnapshot,
   doc,
+  Timestamp,
   getDocs,
   query,
   where,
@@ -20,6 +19,10 @@ import { db } from "@/lib/firebase";
 import { cn } from "@/lib/utils";
 import { Check, ChevronsUpDown, Trash2 } from "lucide-react";
 import Link from "next/link";
+
+// --- 1. IMPORTAÇÕES DE AUTENTICAÇÃO E ROTEAMENTO ---
+import { useAuth } from "@/context/AuthContext";
+import { useRouter } from "next/navigation";
 
 // --- Importações dos componentes Shadcn ---
 import { Button } from "@/components/ui/button";
@@ -79,7 +82,7 @@ interface Cliente {
 interface Produto {
   id: string;
   nome: string;
-  precoCusto: number;
+  precoCusto: number; 
   precoVenda: number;
   estoqueAtual: number;
   tipo: "peca" | "servico";
@@ -92,9 +95,10 @@ interface OrdemDeServico {
   placaVeiculo: string;
   status: "aberta" | "finalizada" | "cancelada";
   valorTotal: number;
+  ownerId?: string; // ATUALIZADO
 }
 
-// --- Schema de Validação ZOD (COM CAMPO GARANTIA E CUSTO) ---
+// --- Schema de Validação ZOD ---
 const osFormSchema = z.object({
   clienteId: z.string().min(1, "Selecione um cliente."),
   veiculoPlaca: z.string().min(3, "Informe a placa."),
@@ -107,7 +111,7 @@ const osFormSchema = z.object({
         id: z.string(),
         nome: z.string(),
         qtde: z.coerce.number().min(1, "Qtde deve ser 1+"),
-        precoCusto: z.coerce.number(),
+        precoCusto: z.coerce.number(), 
         precoUnitario: z.coerce.number(),
         tipo: z.enum(["peca", "servico"]),
         estoqueAtual: z.number(),
@@ -123,33 +127,73 @@ export default function OsPage() {
   const [produtos, setProdutos] = useState<Produto[]>([]);
   const [isComboboxOpen, setIsComboboxOpen] = useState(false);
 
-  // --- Efeito para Buscar TODOS os dados (Sem mudanças) ---
-  useEffect(() => {
-    const unsubOS = onSnapshot(collection(db, "ordensDeServico"), (snapshot) => {
-      setOrdensDeServico(
-        snapshot.docs.map(
-          (doc) => ({ id: doc.id, ...doc.data() } as OrdemDeServico)
-        )
-      );
-    });
-    const unsubClientes = onSnapshot(collection(db, "clientes"), (snapshot) => {
-      setClientes(
-        snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as Cliente))
-      );
-    });
-    const unsubProdutos = onSnapshot(collection(db, "produtos"), (snapshot) => {
-      setProdutos(
-        snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as Produto))
-      );
-    });
-    return () => {
-      unsubOS();
-      unsubClientes();
-      unsubProdutos();
-    };
-  }, []);
+  // --- 2. GUARDIÃO DE ROTA (O "PORTEIRO") ---
+  const { userData, loading: authLoading } = useAuth();
+  const router = useRouter();
 
-  // --- Configuração do Formulário (Sem mudanças) ---
+  if (authLoading) {
+    return (
+      <div className="flex h-screen w-full items-center justify-center">
+        Carregando permissões...
+      </div>
+    );
+  }
+  // Se não estiver logado, redireciona
+  if (!userData) { 
+    router.push('/login');
+    return (
+       <div className="flex h-screen w-full items-center justify-center">
+         Redirecionando...
+       </div>
+    );
+  }
+  // --- FIM DO GUARDIÃO ---
+
+
+  // --- Efeito para Buscar TODOS os dados (ATUALIZADO) ---
+  useEffect(() => {
+    // Só roda se o 'userData' estiver carregado
+    if (userData) {
+      // 1. Busca Ordens de Serviço (Apenas as do usuário logado)
+      const qOS = query(
+        collection(db, "ordensDeServico"),
+        where("ownerId", "==", userData.id) // ATUALIZADO: Filtro de segurança
+      );
+      const unsubOS = onSnapshot(qOS, (snapshot) => {
+        setOrdensDeServico(
+          snapshot.docs.map(
+            (doc) => ({ id: doc.id, ...doc.data() } as OrdemDeServico)
+          )
+        );
+      });
+
+      // 2. Busca Clientes (Apenas os do usuário logado)
+      const qClientes = query(
+        collection(db, "clientes"),
+        where("ownerId", "==", userData.id) // ATUALIZADO: Filtro de segurança
+      );
+      const unsubClientes = onSnapshot(qClientes, (snapshot) => {
+        setClientes(
+          snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as Cliente))
+        );
+      });
+      
+      // 3. Busca Produtos (Catálogo é público para logados, não precisa de filtro)
+      const unsubProdutos = onSnapshot(collection(db, "produtos"), (snapshot) => {
+        setProdutos(
+          snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as Produto))
+        );
+      });
+      
+      return () => {
+        unsubOS();
+        unsubClientes();
+        unsubProdutos();
+      };
+    }
+  }, [userData]); // Roda quando 'userData' for carregado
+
+  // --- Configuração do Formulário ---
   const form = useForm<z.infer<typeof osFormSchema>>({
     resolver: zodResolver(osFormSchema),
     defaultValues: {
@@ -157,7 +201,7 @@ export default function OsPage() {
       veiculoPlaca: "",
       veiculoModelo: "",
       servicosDescricao: "",
-      garantiaDias: 90,
+      garantiaDias: 90, 
       itens: [],
     },
   });
@@ -211,24 +255,29 @@ export default function OsPage() {
   }, 0);
 
 
-  // --- ====================================================== ---
-  // --- FUNÇÃO ON SUBMIT (TOTALMENTE MODIFICADA) ---
-  // --- ====================================================== ---
+  // --- FUNÇÃO ON SUBMIT (ATUALIZADA) ---
   async function onSubmit(values: z.infer<typeof osFormSchema>) {
     
-    // 1. Verificação de OS aberta (continua no client-side)
+    // Verificação de segurança
+    if (!userData) {
+      alert("Erro: Usuário não autenticado.");
+      return;
+    }
+
+    // --- Verificação de OS aberta (continua igual) ---
     try {
       const q = query(
         collection(db, "ordensDeServico"),
         where("clienteId", "==", values.clienteId),
-        where("status", "==", "aberta")
+        where("status", "==", "aberta"),
+        where("ownerId", "==", userData.id) // ATUALIZADO: Só checa as SUAS OS
       );
       
       const querySnapshot = await getDocs(q);
       
       if (!querySnapshot.empty) {
         alert("Erro: Este cliente já possui uma Ordem de Serviço em aberto. Finalize a OS anterior ('Frente de Caixa') antes de criar uma nova.");
-        return; // Para a execução
+        return; 
       }
     } catch (error) {
       console.error("Erro ao verificar OS existente:", error);
@@ -240,14 +289,13 @@ export default function OsPage() {
     const clienteSelecionado = clientes.find((c) => c.id === values.clienteId);
     if (!clienteSelecionado) {
       console.error("Cliente não encontrado");
-      alert("Cliente não encontrado");
       return;
     }
 
-    // 2. Montamos o objeto da OS aqui no frontend
+    // 2. Montamos o objeto da OS (ATUALIZADO com ownerId)
     const novaOSParaEnvio = {
       numeroOS: Math.floor(Math.random() * 10000) + 1,
-      dataAbertura: new Date(), // Enviamos como objeto Date
+      dataAbertura: new Date(), 
       status: "aberta" as "aberta",
       clienteId: values.clienteId,
       nomeCliente: clienteSelecionado.nome,
@@ -255,7 +303,7 @@ export default function OsPage() {
       veiculoModelo: values.veiculoModelo,
       servicosDescricao: values.servicosDescricao,
       garantiaDias: values.garantiaDias, 
-      itens: values.itens.map((item) => ({ // Mapeia para um objeto mais limpo
+      itens: values.itens.map((item) => ({ 
         id: item.id,
         nome: item.nome,
         qtde: item.qtde,
@@ -265,46 +313,39 @@ export default function OsPage() {
       })),
       valorTotal: valorTotalOS,
       custoTotal: custoTotalOS,
+      ownerId: userData.id // ATUALIZADO: Adiciona o ID do dono
     };
 
-    // 3. REMOVEMOS A TRANSAÇÃO LOCAL E CHAMAMOS A NETLIFY FUNCTION!
+    // 3. Chamamos a Netlify Function (sem mudanças aqui)
     try {
-      // O endpoint é sempre /.netlify/functions/NOME_DO_ARQUIVO
       const response = await fetch('/.netlify/functions/criarOS', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          novaOS: novaOSParaEnvio, // O objeto da OS que a função vai salvar
-          itens: values.itens,      // A lista de itens (com estoqueAtual) que a função vai validar
+          novaOS: novaOSParaEnvio, 
+          itens: values.itens,
         }),
       });
 
       const result = await response.json();
 
-      // Se a resposta NÃO for OK (erro 500, 404, etc)
       if (!response.ok) {
-        // Mostra o erro que veio da Netlify Function (ex: "Estoque insuficiente")
         throw new Error(result.error || "Erro desconhecido ao salvar OS");
       }
 
-      // 4. Se deu tudo certo!
       console.log("OS salva pela Netlify Function!", result.message);
       form.reset();
       setIsModalOpen(false);
 
     } catch (error: any) {
       console.error("Erro ao chamar a Netlify Function criarOS: ", error);
-      // Mostra o alerta de erro para o usuário
       alert("Erro ao salvar: " + error.message);
     }
   }
-  // --- ====================================================== ---
-  // --- FIM DA FUNÇÃO ON SUBMIT MODIFICADA ---
-  // --- ====================================================== ---
 
-
+  // --- Renderização (Se chegou aqui, está logado) ---
   return (
     <div>
       <div className="flex justify-between items-center mb-6">
@@ -323,7 +364,7 @@ export default function OsPage() {
             <Form {...form}>
               <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
                 
-                {/* --- SEÇÃO DADOS DO CLIENTE (Sem mudanças) --- */}
+                {/* --- SEÇÃO DADOS DO CLIENTE --- */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <FormField
                     control={form.control}
@@ -338,6 +379,7 @@ export default function OsPage() {
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
+                            {/* Agora só mostra os clientes do usuário logado */}
                             {clientes.map((cliente) => (
                               <SelectItem key={cliente.id} value={cliente.id}>
                                 {cliente.nome}
@@ -377,7 +419,7 @@ export default function OsPage() {
                   />
                 </div>
 
-                {/* --- SEÇÃO OBSERVAÇÕES E GARANTIA (Sem mudanças) --- */}
+                {/* --- SEÇÃO OBSERVAÇÕES E GARANTIA --- */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <FormField
                     control={form.control}
@@ -410,7 +452,7 @@ export default function OsPage() {
                   />
                 </div>
 
-                {/* --- SEÇÃO ADICIONAR ITENS (Sem mudanças) --- */}
+                {/* --- SEÇÃO ADICIONAR ITENS --- */}
                 <div>
                   <FormLabel>Adicionar Peças e Serviços</FormLabel>
                   <Popover open={isComboboxOpen} onOpenChange={setIsComboboxOpen}>
@@ -448,7 +490,7 @@ export default function OsPage() {
                   <FormMessage>{form.formState.errors.itens?.message}</FormMessage>
                 </div>
 
-                {/* --- TABELA DE ITENS (Sem mudanças) --- */}
+                {/* --- TABELA DE ITENS --- */}
                 <div className="rounded-md border">
                   <Table>
                     <TableHeader>
@@ -507,8 +549,8 @@ export default function OsPage() {
                     </TableBody>
                   </Table>
                 </div>
-
-                {/* --- TOTAIS E BOTÃO (Sem mudanças) --- */}
+                
+                {/* --- TOTAIS E BOTÃO --- */}
                 <div className="flex justify-between items-center">
                   <h2 className="text-lg font-medium text-gray-600">
                     Custo Peças: R$ {custoTotalOS.toFixed(2)}
@@ -528,7 +570,7 @@ export default function OsPage() {
         </Dialog>
       </div>
 
-      {/* --- TABELA DE LISTAGEM DE OS (Sem mudanças) --- */}
+      {/* --- TABELA DE LISTAGEM DE OS --- */}
       <div className="rounded-md border">
         <Table>
           <TableHeader>
@@ -543,6 +585,7 @@ export default function OsPage() {
             </TableRow>
           </TableHeader>
           <TableBody>
+            {/* Agora só lista as OSs do usuário logado */}
             {ordensDeServico.map((os) => (
               <TableRow key={os.id}>
                 <TableCell>

@@ -54,6 +54,7 @@ interface Movimentacao {
   descricao: string;
   valor: number;
   formaPagamento: string;
+  ownerId?: string; // ATUALIZADO
 }
 
 // --- Schema de Validação ZOD ---
@@ -61,14 +62,20 @@ const despesaSchema = z.object({
   descricao: z.string().min(3, "Descreva a despesa."),
   valor: z.preprocess(
     (val) => {
+      // Se for string (do input), limpa e converte
       if (typeof val === 'string') {
+        // Se a string estiver vazia, retorna undefined para o Zod tratar
         if (val.trim() === "") return undefined;
+        // Substitui vírgula por ponto (importante no Brasil) e converte
         const num = parseFloat(val.replace(',', '.'));
+        // Se a conversão falhar (ex: "abc"), retorna NaN para o Zod pegar
         return isNaN(num) ? undefined : num;
       }
+      // Se já for número, só repassa
       if (typeof val === 'number') {
         return val;
       }
+      // Se for qualquer outra coisa (undefined, null), falha na validação
       return undefined;
     },
     z.number()
@@ -95,8 +102,8 @@ export default function DespesasPage() {
     );
   }
 
+  // Esta página é SÓ para admin (conforme regra 'movimentacoes')
   if (!userData || userData.role !== 'admin') {
-    // Se não tem usuário ou SE NÃO FOR ADMIN, manda embora
     router.push('/');
     return (
        <div className="flex h-screen w-full items-center justify-center">
@@ -107,35 +114,42 @@ export default function DespesasPage() {
   // --- FIM DO GUARDIÃO ---
 
 
-  // --- Efeito para buscar as despesas de HOJE ---
-  // (Só vai rodar se o usuário for ADMIN, pois o guardião já barrou os outros)
+  // --- Efeito para buscar as despesas de HOJE (ATUALIZADO) ---
   useEffect(() => {
-    setListLoading(true);
+    // O guardião acima garante que 'userData' existe e é admin
+    if (userData) {
+      setListLoading(true);
 
-    const hoje = new Date();
-    const inicioDoDia = new Date(hoje.setHours(0, 0, 0, 0));
-    const fimDoDia = new Date(hoje.setHours(23, 59, 59, 999));
+      const hoje = new Date();
+      const inicioDoDia = new Date(hoje.setHours(0, 0, 0, 0));
+      const fimDoDia = new Date(hoje.setHours(23, 59, 59, 999));
 
-    const movRef = collection(db, "movimentacoes");
+      const movRef = collection(db, "movimentacoes");
 
-    const q = query(
-      movRef,
-      where("tipo", "==", "saida"),
-      where("data", ">=", inicioDoDia),
-      where("data", "<=", fimDoDia)
-    );
+      const q = query(
+        movRef,
+        where("tipo", "==", "saida"),
+        where("data", ">=", inicioDoDia),
+        where("data", "<=", fimDoDia),
+        where("ownerId", "==", userData.id) // ATUALIZADO: Filtro de segurança
+      );
 
-    const unsub = onSnapshot(q, (snapshot) => {
-      const listaDespesas: Movimentacao[] = [];
-      snapshot.forEach((doc) => {
-        listaDespesas.push({ id: doc.id, ...doc.data() } as Movimentacao);
+      const unsub = onSnapshot(q, (snapshot) => {
+        const listaDespesas: Movimentacao[] = [];
+        snapshot.forEach((doc) => {
+          listaDespesas.push({ id: doc.id, ...doc.data() } as Movimentacao);
+        });
+        setDespesasHoje(listaDespesas);
+        setListLoading(false);
+      }, (error) => {
+        // Este erro não deve mais acontecer
+        console.error("Erro ao buscar despesas (verifique regras): ", error);
+        setListLoading(false);
       });
-      setDespesasHoje(listaDespesas);
-      setListLoading(false);
-    });
 
-    return () => unsub();
-  }, []); // Dependência vazia, pois só roda 1x para o admin
+      return () => unsub();
+    }
+  }, [userData]); // Roda quando 'userData' for carregado
 
   // --- Configuração do Formulário de Despesa ---
   const form = useForm<z.infer<typeof despesaSchema>>({
@@ -147,8 +161,13 @@ export default function DespesasPage() {
     },
   });
 
-  // --- Função de Salvar Despesa ---
+  // --- Função de Salvar Despesa (ATUALIZADO) ---
   async function onSubmit(values: z.infer<typeof despesaSchema>) {
+    if (!userData) {
+      alert("Erro: Usuário não autenticado.");
+      return;
+    }
+    
     try {
       await addDoc(collection(db, "movimentacoes"), {
         data: new Date(),
@@ -156,6 +175,7 @@ export default function DespesasPage() {
         descricao: values.descricao,
         valor: values.valor, 
         formaPagamento: values.formaPagamento,
+        ownerId: userData.id // ATUALIZADO: Salva o 'ownerId'
       });
 
       console.log("Despesa registrada com sucesso!");
@@ -165,7 +185,7 @@ export default function DespesasPage() {
     }
   }
 
-  // --- Se chegou aqui, é ADMIN e pode ver a página ---
+  // --- Renderização (Se chegou aqui, é ADMIN) ---
   return (
     <div>
       <h1 className="text-4xl font-bold mb-6">Lançar Despesas (Saídas)</h1>

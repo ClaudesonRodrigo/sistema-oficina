@@ -17,18 +17,19 @@ interface OSData {
     itens: any[];
     valorTotal: number;
     custoTotal: number;
+    ownerId: string; // ATUALIZADO: Campo de segurança
   };
-  itens: any[];
+  itens: any[]; // Itens completos do formulário (com estoqueAtual)
 }
 
 let db: admin.firestore.Firestore;
 let initializationError: string | null = null;
 
-// --- Configuração do Admin SDK (Corrigida com .replace()) ---
+// --- Configuração do Admin SDK (Sem Base64) ---
 try {
   const projectId = process.env.FIREBASE_PROJECT_ID;
   const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
-  const privateKey = process.env.FIREBASE_PRIVATE_KEY; // Chave "crua"
+  const privateKey = process.env.FIREBASE_PRIVATE_KEY; 
 
   if (!projectId) throw new Error("Variável de ambiente FIREBASE_PROJECT_ID não foi encontrada.");
   if (!clientEmail) throw new Error("Variável de ambiente FIREBASE_CLIENT_EMAIL não foi encontrada.");
@@ -39,8 +40,7 @@ try {
       credential: admin.credential.cert({
         projectId: projectId,
         clientEmail: clientEmail,
-        // --- ESTA É A CORREÇÃO DA SUA PESQUISA (Seção 1.3) ---
-        privateKey: privateKey.replace(/\\n/g, '\n'),
+        privateKey: privateKey.replace(/\\n/g, '\n'), // Correção p/ Netlify
       }),
     });
     console.log("Firebase Admin (criarOS) inicializado com SUCESSO.");
@@ -77,10 +77,12 @@ const handler: Handler = async (event: HandlerEvent) => {
     const { novaOS, itens } = JSON.parse(event.body) as OSData;
     
     await db.runTransaction(async (transaction) => {
+      // Converte a data (que vem como string no JSON) de volta para Timestamp
       novaOS.dataAbertura = new Date(novaOS.dataAbertura);
       
       const osRef = db.collection("ordensDeServico").doc();
-      transaction.set(osRef, novaOS);
+      // Salva a OS (que agora contém o ownerId vindo do frontend)
+      transaction.set(osRef, novaOS); 
       
       for (const item of itens) {
         if (item.tipo === "peca") {

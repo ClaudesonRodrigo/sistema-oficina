@@ -17,6 +17,10 @@ import {
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 
+// --- 1. IMPORTAÇÕES DE AUTENTICAÇÃO E ROTEAMENTO ---
+import { useAuth } from "@/context/AuthContext";
+import { useRouter } from "next/navigation";
+
 // Componentes Shadcn
 import { Button } from "@/components/ui/button";
 import {
@@ -60,7 +64,8 @@ interface OrdemDeServico {
   placaVeiculo: string;
   status: "aberta" | "finalizada" | "cancelada";
   valorTotal: number;
-  custoTotal: number; // <-- NOVO CAMPO
+  custoTotal: number; 
+  ownerId?: string; // ATUALIZADO
 }
 
 // --- Schema de Validação ZOD para o pagamento ---
@@ -74,24 +79,53 @@ export default function CaixaPage() {
   
   const [selectedOS, setSelectedOS] = useState<OrdemDeServico | null>(null);
 
-  // --- Efeito para buscar OS "abertas" ---
+  // --- 2. GUARDIÃO DE ROTA (O "PORTEIRO") ---
+  const { userData, loading: authLoading } = useAuth();
+  const router = useRouter();
+
+  if (authLoading) {
+    return (
+      <div className="flex h-screen w-full items-center justify-center">
+        Carregando permissões...
+      </div>
+    );
+  }
+  // Se não estiver logado, redireciona
+  if (!userData) { 
+    router.push('/login');
+    return (
+       <div className="flex h-screen w-full items-center justify-center">
+         Redirecionando...
+       </div>
+    );
+  }
+  // --- FIM DO GUARDIÃO ---
+
+  // --- Efeito para buscar OS "abertas" (ATUALIZADO) ---
   useEffect(() => {
-    setLoading(true);
-    const osRef = collection(db, "ordensDeServico");
-    
-    const q = query(osRef, where("status", "==", "aberta"));
+    // Só roda se o 'userData' estiver carregado
+    if (userData) {
+      setLoading(true);
+      const osRef = collection(db, "ordensDeServico");
+      
+      const q = query(
+        osRef, 
+        where("status", "==", "aberta"),
+        where("ownerId", "==", userData.id) // ATUALIZADO: Filtro de segurança
+      );
 
-    const unsub = onSnapshot(q, (snapshot) => {
-      const listaOS: OrdemDeServico[] = [];
-      snapshot.forEach((doc) => {
-        listaOS.push({ id: doc.id, ...doc.data() } as OrdemDeServico);
+      const unsub = onSnapshot(q, (snapshot) => {
+        const listaOS: OrdemDeServico[] = [];
+        snapshot.forEach((doc) => {
+          listaOS.push({ id: doc.id, ...doc.data() } as OrdemDeServico);
+        });
+        setOsAbertas(listaOS);
+        setLoading(false);
       });
-      setOsAbertas(listaOS);
-      setLoading(false);
-    });
 
-    return () => unsub();
-  }, []);
+      return () => unsub();
+    }
+  }, [userData]); // Roda quando 'userData' for carregado
 
   // --- Configuração do Formulário de Pagamento ---
   const form = useForm<z.infer<typeof pagamentoSchema>>({
@@ -101,9 +135,12 @@ export default function CaixaPage() {
     },
   });
 
-  // --- FUNÇÃO DE FINALIZAR PAGAMENTO (MODIFICADA) ---
+  // --- FUNÇÃO DE FINALIZAR PAGAMENTO (ATUALIZADO) ---
   async function onSubmit(values: z.infer<typeof pagamentoSchema>) {
-    if (!selectedOS) return;
+    if (!selectedOS || !userData) {
+      alert("Erro: OS ou Usuário não selecionado.");
+      return;
+    }
 
     const dataFinalizacao = new Date();
 
@@ -123,9 +160,10 @@ export default function CaixaPage() {
         tipo: "entrada",
         descricao: `Venda OS #${selectedOS.numeroOS}`,
         valor: selectedOS.valorTotal,
-        custo: selectedOS.custoTotal || 0, // <-- NOVO CAMPO (Custo da Venda)
+        custo: selectedOS.custoTotal || 0,
         formaPagamento: values.formaPagamento,
         referenciaId: selectedOS.id, 
+        ownerId: userData.id // ATUALIZADO: Salva o 'ownerId'
       });
       console.log("Movimentação de entrada registrada!");
 
@@ -138,6 +176,7 @@ export default function CaixaPage() {
     }
   }
 
+  // --- Renderização (Se chegou aqui, está logado) ---
   return (
     <div>
       <div className="flex justify-between items-center mb-6">
@@ -175,6 +214,7 @@ export default function CaixaPage() {
                 </TableCell>
               </TableRow>
             )}
+            {/* Agora só lista as OSs do usuário logado */}
             {!loading && osAbertas.map((os) => (
               <TableRow key={os.id}>
                 <TableCell>{os.numeroOS}</TableCell>
@@ -218,11 +258,6 @@ export default function CaixaPage() {
             <h3 className="text-3xl font-bold text-center mb-6">
               Total: R$ {selectedOS?.valorTotal.toFixed(2)}
             </h3>
-            {/* --- NOVO: MOSTRA O CUSTO (APENAS DEBUG, PODE REMOVER) ---
-            <p className="text-center text-sm text-gray-500 mb-4">
-              Custo Peças: R$ {selectedOS?.custoTotal.toFixed(2)}
-            </p>
-            */}
 
             <Form {...form}>
               <form id="pagamentoForm" onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">

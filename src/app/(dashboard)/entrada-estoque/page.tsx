@@ -83,15 +83,15 @@ interface Produto {
 const compraFormSchema = z.object({
   fornecedorId: z.string().min(1, "Selecione um fornecedor."),
   formaPagamento: z.enum(["pix", "dinheiro", "cartao_debito"]),
-  notaFiscal: z.string().optional(), 
+  notaFiscal: z.string().optional(), // Número da NF-e de compra
   itens: z
     .array(
       z.object({
-        id: z.string(), 
+        id: z.string(), // ID do produto
         nome: z.string(),
         qtde: z.coerce.number().min(1, "Qtde deve ser 1+"),
-        precoCustoUnitario: z.coerce.number().min(0, "Custo deve ser 0+"), 
-        estoqueAntigo: z.number(), 
+        precoCustoUnitario: z.coerce.number().min(0, "Custo deve ser 0+"), // O novo custo
+        estoqueAntigo: z.number(), // O estoque antes da compra
       })
     )
     .min(1, "Adicione pelo menos uma peça."),
@@ -114,6 +114,7 @@ export default function EntradaEstoquePage() {
     );
   }
 
+  // Esta página é SÓ para admin (conforme regra 'produtos' e 'movimentacoes')
   if (!userData || userData.role !== 'admin') {
     router.push('/');
     return (
@@ -125,29 +126,37 @@ export default function EntradaEstoquePage() {
   // --- FIM DO GUARDIÃO ---
 
 
-  // --- Efeito para Buscar Fornecedores e Produtos ---
-  // (Só roda se for ADMIN)
+  // --- Efeito para Buscar Fornecedores e Produtos (ATUALIZADO) ---
   useEffect(() => {
-    // 1. Buscar Fornecedores
-    const unsubForn = onSnapshot(collection(db, "fornecedores"), (snapshot) => {
-      setFornecedores(
-        snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Fornecedor))
+    // O guardião garante que 'userData' existe e é admin
+    if (userData) {
+      
+      // 1. Buscar Fornecedores (APENAS os do admin logado)
+      const qForn = query(
+        collection(db, "fornecedores"),
+        where("ownerId", "==", userData.id) // Filtro de segurança
       );
-    });
+      const unsubForn = onSnapshot(qForn, (snapshot) => {
+        setFornecedores(
+          snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Fornecedor))
+        );
+      });
 
-    // 2. Buscar Produtos (apenas do tipo 'peca')
-    const q = query(collection(db, "produtos"), where("tipo", "==", "peca"));
-    const unsubProd = onSnapshot(q, (snapshot) => {
-      setProdutos(
-        snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Produto))
-      );
-    });
+      // 2. Buscar Produtos (catálogo é público para logados)
+      // (Não precisamos filtrar por ownerId aqui, pois o admin pode ver todos os produtos)
+      const qProd = query(collection(db, "produtos"), where("tipo", "==", "peca"));
+      const unsubProd = onSnapshot(qProd, (snapshot) => {
+        setProdutos(
+          snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Produto))
+        );
+      });
 
-    return () => {
-      unsubForn();
-      unsubProd();
-    };
-  }, []); // Dependência vazia, roda 1x
+      return () => {
+        unsubForn();
+        unsubProd();
+      };
+    }
+  }, [userData]); // Roda quando 'userData' for carregado
 
   // --- Configuração do Formulário ---
   const form = useForm<z.infer<typeof compraFormSchema>>({
@@ -178,7 +187,7 @@ export default function EntradaEstoquePage() {
       id: produto.id,
       nome: produto.nome,
       qtde: 1,
-      precoCustoUnitario: produto.precoCusto, 
+      precoCustoUnitario: produto.precoCusto, // Puxa o último custo cadastrado
       estoqueAntigo: produto.estoqueAtual,
     });
     setIsComboboxOpen(false);
@@ -192,8 +201,13 @@ export default function EntradaEstoquePage() {
     return total + (custo * quantidade);
   }, 0);
 
-  // --- FUNÇÃO DE SALVAR A COMPRA ---
+  // --- FUNÇÃO DE SALVAR A COMPRA (ATUALIZADO) ---
   async function onSubmit(values: z.infer<typeof compraFormSchema>) {
+    if (!userData) {
+      alert("Erro: Usuário não autenticado.");
+      return;
+    }
+    
     const fornecedorSelecionado = fornecedores.find(f => f.id === values.fornecedorId);
     if (!fornecedorSelecionado) {
       alert("Erro: Fornecedor não encontrado.");
@@ -201,6 +215,7 @@ export default function EntradaEstoquePage() {
     }
 
     try {
+      // Usamos uma transação para garantir que tudo (estoque e despesa) funcione
       await runTransaction(db, async (transaction) => {
         // 1. Atualiza o estoque e o custo de cada produto
         for (const item of values.itens) {
@@ -209,7 +224,7 @@ export default function EntradaEstoquePage() {
           
           transaction.update(produtoRef, { 
             estoqueAtual: novoEstoque,
-            precoCusto: item.precoCustoUnitario 
+            precoCusto: item.precoCustoUnitario // Atualiza o custo da peça
           });
         }
 
@@ -217,11 +232,12 @@ export default function EntradaEstoquePage() {
         const movRef = doc(collection(db, "movimentacoes"));
         transaction.set(movRef, {
           data: new Date(),
-          tipo: "saida", 
+          tipo: "saida", // Compra é uma SAÍDA de caixa
           descricao: `Compra NF #${values.notaFiscal || 'S/N'} - Forn: ${fornecedorSelecionado.nome}`,
           valor: custoTotalCompra,
           formaPagamento: values.formaPagamento,
-          referenciaId: values.notaFiscal, 
+          referenciaId: values.notaFiscal, // Guarda a NF da compra
+          ownerId: userData.id // ATUALIZADO: Salva o 'ownerId'
         });
       });
 
@@ -234,6 +250,7 @@ export default function EntradaEstoquePage() {
     }
   }
 
+  // --- Renderização (Se chegou aqui, é ADMIN) ---
   return (
     <div>
       <h1 className="text-4xl font-bold mb-6">Registrar Entrada de Estoque (Compra)</h1>
