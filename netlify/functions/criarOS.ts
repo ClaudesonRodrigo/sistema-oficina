@@ -24,38 +24,32 @@ interface OSData {
 let db: admin.firestore.Firestore;
 let initializationError: string | null = null;
 
-// --- Configuração do Admin SDK (Corrigida e com Debug) ---
+// --- Configuração do Admin SDK (Sem Base64) ---
 try {
-  // 1. Pega as variáveis
   const projectId = process.env.FIREBASE_PROJECT_ID;
   const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
-  const privateKeyBase64 = process.env.FIREBASE_PRIVATE_KEY;
+  // 1. Lemos a chave "crua" (com múltiplas linhas)
+  const privateKey = process.env.FIREBASE_PRIVATE_KEY;
 
-  // 2. DEBUG: Verifica se as variáveis existem
   if (!projectId) throw new Error("Variável de ambiente FIREBASE_PROJECT_ID não foi encontrada.");
   if (!clientEmail) throw new Error("Variável de ambiente FIREBASE_CLIENT_EMAIL não foi encontrada.");
-  if (!privateKeyBase64) throw new Error("Variável de ambiente FIREBASE_PRIVATE_KEY não foi encontrada.");
+  if (!privateKey) throw new Error("Variável de ambiente FIREBASE_PRIVATE_KEY não foi encontrada.");
 
-  // 3. Decodifica a chave
-  const privateKey = Buffer.from(privateKeyBase64, 'base64').toString('utf8');
-
-  // 4. Inicializa o App
+  // 2. Inicializa o App
   if (!admin.apps.length) {
     admin.initializeApp({
       credential: admin.credential.cert({
         projectId: projectId,
         clientEmail: clientEmail,
-        privateKey: privateKey,
+        privateKey: privateKey, // 3. Usa a chave "crua" diretamente
       }),
     });
     console.log("Firebase Admin (criarOS) inicializado com SUCESSO.");
   }
 
-  // 5. Atribui os serviços
   db = admin.firestore();
 
 } catch (e: any) {
-  // 6. SE FALHAR, guarda o erro
   console.error("ERRO CRÍTICO AO INICIALIZAR FIREBASE ADMIN (criarOS):", e.message);
   initializationError = e.message;
 }
@@ -63,7 +57,6 @@ try {
 
 
 const handler: Handler = async (event: HandlerEvent) => {
-  // 7. Adiciona uma verificação no início do handler
   if (!db || initializationError) {
      const errorMsg = `ERRO: O Firebase Admin não foi inicializado. Causa: ${initializationError || "Erro desconhecido"}`;
      console.error(errorMsg);
@@ -73,7 +66,6 @@ const handler: Handler = async (event: HandlerEvent) => {
      };
   }
 
-  // --- O resto da sua função ---
   if (event.httpMethod !== 'POST') {
     return { statusCode: 405, body: JSON.stringify({ error: 'Método não permitido' }) };
   }
