@@ -7,9 +7,10 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 
 import { db } from "@/lib/firebase";
-import { collection, addDoc, onSnapshot } from "firebase/firestore"; 
+// ATUALIZADO: Importar 'query' e 'where'
+import { collection, addDoc, onSnapshot, query, where } from "firebase/firestore"; 
 
-// --- 1. IMPORTAÇÕES DE AUTENTICAÇÃO E ROTEAMENTO ---
+// ATUALIZADO: Importar hooks de autenticação
 import { useAuth } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
 
@@ -48,6 +49,7 @@ interface Fornecedor {
   telefone?: string;
   cnpj?: string;
   vendedor?: string; 
+  ownerId?: string; // Campo de segurança
 }
 
 const formSchema = z.object({
@@ -61,10 +63,11 @@ export default function FornecedoresPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [fornecedores, setFornecedores] = useState<Fornecedor[]>([]);
 
-  // --- 2. GUARDIÃO DE ROTA (O "PORTEIRO") ---
+  // Pega o 'userData' (que tem o ID) e o 'authLoading'
   const { userData, loading: authLoading } = useAuth();
   const router = useRouter();
 
+  // --- GUARDIÃO DE ROTA (O "PORTEIRO") ---
   if (authLoading) {
     return (
       <div className="flex h-screen w-full items-center justify-center">
@@ -72,12 +75,8 @@ export default function FornecedoresPage() {
       </div>
     );
   }
-
-  // ATENÇÃO: A regra que definimos permite 'operador' LER fornecedores.
-  // Se você quiser que SÓ ADMIN veja esta página, mude para:
-  // if (!userData || userData.role !== 'admin') {
-
-  if (!userData) { // Se só precisa estar logado
+  // Se não estiver logado, redireciona
+  if (!userData) { 
     router.push('/login');
     return (
        <div className="flex h-screen w-full items-center justify-center">
@@ -86,23 +85,33 @@ export default function FornecedoresPage() {
     );
   }
   // --- FIM DO GUARDIÃO ---
-
-
-  // (Este useEffect pode rodar para todos logados, pois a regra permite LEITURA)
+  
+  // --- useEffect ATUALIZADO ---
+  // (Agora só busca os fornecedores que o usuário logado criou)
   useEffect(() => {
-    const unsub = onSnapshot(collection(db, "fornecedores"), (querySnapshot) => {
-      const listaDeFornecedores: Fornecedor[] = [];
-      querySnapshot.forEach((doc) => {
-        listaDeFornecedores.push({
-          id: doc.id,
-          ...doc.data()
-        } as Fornecedor);
+    // Só roda SE o userData estiver carregado
+    if (userData) {
+      // 1. Cria a query segura
+      const q = query(
+        collection(db, "fornecedores"),
+        where("ownerId", "==", userData.id) // Filtra por 'ownerId'
+      );
+      
+      // 2. Ouve a query (não a coleção inteira)
+      const unsub = onSnapshot(q, (querySnapshot) => {
+        const listaDeFornecedores: Fornecedor[] = [];
+        querySnapshot.forEach((doc) => {
+          listaDeFornecedores.push({
+            id: doc.id,
+            ...doc.data()
+          } as Fornecedor);
+        });
+        setFornecedores(listaDeFornecedores); 
       });
-      setFornecedores(listaDeFornecedores); 
-    });
 
-    return () => unsub(); 
-  }, []); 
+      return () => unsub();
+    }
+  }, [userData]); // 3. Roda de novo se o usuário (userData) mudar
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -114,9 +123,24 @@ export default function FornecedoresPage() {
     },
   });
 
+  // --- onSubmit ATUALIZADO ---
+  // (Agora salva o ownerId)
   async function onSubmit(values: z.infer<typeof formSchema>) {
+    if (!userData) {
+      alert("Erro: Usuário não autenticado.");
+      return;
+    }
+
     try {
-      const docRef = await addDoc(collection(db, "fornecedores"), values);
+      // 1. Monta o documento com o ownerId
+      const docParaSalvar = {
+        ...values,
+        ownerId: userData.id // AQUI ESTÁ A MUDANÇA
+      };
+      
+      // 2. Salva na coleção "fornecedores"
+      const docRef = await addDoc(collection(db, "fornecedores"), docParaSalvar);
+      
       console.log("Fornecedor salvo com ID: ", docRef.id);
       form.reset();
       setIsModalOpen(false);

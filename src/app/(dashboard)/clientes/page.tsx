@@ -7,9 +7,9 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 
 import { db } from "@/lib/firebase";
-import { collection, addDoc, onSnapshot } from "firebase/firestore"; 
+// ATUALIZADO: Importar 'query' e 'where'
+import { collection, addDoc, onSnapshot, query, where } from "firebase/firestore"; 
 
-// --- 1. IMPORTAÇÕES DE AUTENTICAÇÃO E ROTEAMENTO ---
 import { useAuth } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
 
@@ -47,6 +47,7 @@ interface Cliente {
   nome: string;
   telefone?: string;
   cpfCnpj?: string;
+  ownerId?: string; // Campo de segurança
 }
 
 const formSchema = z.object({
@@ -58,11 +59,12 @@ const formSchema = z.object({
 export default function ClientesPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [clientes, setClientes] = useState<Cliente[]>([]);
-
-  // --- 2. GUARDIÃO DE ROTA (O "PORTEIRO") ---
+  
+  // Pega o 'userData' (que tem o ID) e o 'authLoading'
   const { userData, loading: authLoading } = useAuth();
   const router = useRouter();
 
+  // --- GUARDIÃO DE ROTA (O "PORTEIRO") ---
   if (authLoading) {
     return (
       <div className="flex h-screen w-full items-center justify-center">
@@ -70,12 +72,8 @@ export default function ClientesPage() {
       </div>
     );
   }
-
-  // ATENÇÃO: A regra que definimos permite 'operador' LER clientes.
-  // Se você quiser que SÓ ADMIN veja esta página, mude para:
-  // if (!userData || userData.role !== 'admin') {
-  
-  if (!userData) { // Se só precisa estar logado
+  // Se não estiver logado, redireciona
+  if (!userData) { 
     router.push('/login');
     return (
        <div className="flex h-screen w-full items-center justify-center">
@@ -85,21 +83,33 @@ export default function ClientesPage() {
   }
   // --- FIM DO GUARDIÃO ---
   
-  // (Este useEffect pode rodar para todos logados, pois a regra permite LEITURA)
+  
+  // --- useEffect ATUALIZADO ---
+  // (Agora só busca os clientes que o usuário logado criou)
   useEffect(() => {
-    const unsub = onSnapshot(collection(db, "clientes"), (querySnapshot) => {
-      const listaDeClientes: Cliente[] = [];
-      querySnapshot.forEach((doc) => {
-        listaDeClientes.push({
-          id: doc.id,
-          ...doc.data()
-        } as Cliente);
+    // Só roda SE o userData estiver carregado
+    if (userData) {
+      // 1. Cria a query segura
+      const q = query(
+        collection(db, "clientes"),
+        where("ownerId", "==", userData.id) // Filtra por 'ownerId'
+      );
+      
+      // 2. Ouve a query (não a coleção inteira)
+      const unsub = onSnapshot(q, (querySnapshot) => {
+        const listaDeClientes: Cliente[] = [];
+        querySnapshot.forEach((doc) => {
+          listaDeClientes.push({
+            id: doc.id,
+            ...doc.data()
+          } as Cliente);
+        });
+        setClientes(listaDeClientes); 
       });
-      setClientes(listaDeClientes); 
-    });
 
-    return () => unsub(); 
-  }, []); 
+      return () => unsub(); 
+    }
+  }, [userData]); // 3. Roda de novo se o usuário (userData) mudar
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -110,9 +120,25 @@ export default function ClientesPage() {
     },
   });
 
+  // --- onSubmit ATUALIZADO ---
+  // (Agora salva o ownerId)
   async function onSubmit(values: z.infer<typeof formSchema>) {
+    // Validação extra (caso o guardião falhe)
+    if (!userData) {
+      alert("Erro: Usuário não autenticado.");
+      return;
+    }
+
     try {
-      const docRef = await addDoc(collection(db, "clientes"), values);
+      // 1. Monta o documento com o ownerId
+      const docParaSalvar = {
+        ...values,
+        ownerId: userData.id // AQUI ESTÁ A MUDANÇA
+      };
+      
+      // 2. Salva na coleção "clientes"
+      const docRef = await addDoc(collection(db, "clientes"), docParaSalvar);
+      
       console.log("Cliente salvo com ID: ", docRef.id);
       form.reset();
       setIsModalOpen(false);
