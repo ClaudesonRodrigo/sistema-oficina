@@ -1,7 +1,7 @@
 // src/app/(dashboard)/relatorios/page.tsx
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react"; // 1. useEffect será usado
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -10,6 +10,10 @@ import { db } from "@/lib/firebase";
 import { format, startOfDay, endOfDay } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { Calendar as CalendarIcon } from "lucide-react";
+
+// --- 2. NOVAS IMPORTAÇÕES PARA AUTENTICAÇÃO E ROTEAMENTO ---
+import { useAuth } from "@/context/AuthContext";
+import { useRouter } from "next/navigation";
 
 // Componentes Shadcn
 import { Button } from "@/components/ui/button";
@@ -67,7 +71,21 @@ const reportSchema = z.object({
 export default function RelatoriosPage() {
   const [resumo, setResumo] = useState<ResumoCaixa | null>(null);
   const [movimentacoes, setMovimentacoes] = useState<Movimentacao[]>([]);
+  // Este 'loading' é para o formulário de busca
   const [loading, setLoading] = useState(false);
+
+  // --- 3. ADICIONA A PROTEÇÃO DE ROTA (O "GUARDIÃO") ---
+  const { userData, loading: authLoading } = useAuth(); // Renomeia o loading do Auth
+  const router = useRouter();
+
+  // Verifica as permissões ANTES de tentar buscar dados
+  useEffect(() => {
+    if (!authLoading && userData && userData.role !== 'admin') {
+      // Se não estiver carregando, tiver dados E o usuário NÃO for admin
+      router.push('/'); // Manda ele de volta pro Dashboard
+    }
+  }, [userData, authLoading, router]);
+  // --- FIM DA PROTEÇÃO ---
 
   // --- Configuração do Formulário de Data ---
   const form = useForm<z.infer<typeof reportSchema>>({
@@ -84,7 +102,6 @@ export default function RelatoriosPage() {
     setResumo(null);
     setMovimentacoes([]);
 
-    // Garante que a data final inclua o dia todo
     const dataInicio = startOfDay(values.dataInicio);
     const dataFim = endOfDay(values.dataFim);
 
@@ -127,6 +144,8 @@ export default function RelatoriosPage() {
       });
       setMovimentacoes(listaMovimentacoes);
     } catch (error) {
+      // O erro 'permission-denied' não deve mais acontecer
+      // se a lógica de proteção acima estiver correta
       console.error("Erro ao gerar relatório:", error);
       alert("Erro ao gerar relatório. Verifique o console.");
     } finally {
@@ -134,6 +153,26 @@ export default function RelatoriosPage() {
     }
   }
 
+  // --- 4. EXIBE "CARREGANDO..." ENQUANTO VERIFICA O LOGIN ---
+  if (authLoading || !userData) {
+    return (
+      <div className="flex h-screen w-full items-center justify-center">
+        Carregando permissões...
+      </div>
+    );
+  }
+
+  // --- 5. REDIRECIONA SE FOR OPERADOR ---
+  // (Redundante com o useEffect, mas é uma garantia extra)
+  if (userData.role !== 'admin') {
+    return (
+       <div className="flex h-screen w-full items-center justify-center">
+         Redirecionando... Acesso negado.
+       </div>
+    );
+  }
+
+  // --- 6. SE CHEGOU AQUI, É ADMIN E PODE VER A PÁGINA ---
   return (
     <div>
       <h1 className="text-4xl font-bold mb-6">Relatórios Financeiros</h1>

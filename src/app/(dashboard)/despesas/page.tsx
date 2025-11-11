@@ -3,7 +3,7 @@
 
 import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod"; // Importará a v3 após o Passo 1
+import { zodResolver } from "@hookform/resolvers/zod"; 
 import { z } from "zod";
 import {
   collection,
@@ -14,6 +14,10 @@ import {
   Timestamp,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+
+// --- 1. IMPORTAÇÕES DE AUTENTICAÇÃO E ROTEAMENTO ---
+import { useAuth } from "@/context/AuthContext";
+import { useRouter } from "next/navigation";
 
 // Componentes Shadcn
 import { Button } from "@/components/ui/button";
@@ -52,44 +56,61 @@ interface Movimentacao {
   formaPagamento: string;
 }
 
-// --- Schema de Validação ZOD (Corrigido para Netlify, mantendo a vírgula e o campo obrigatório) ---
+// --- Schema de Validação ZOD ---
 const despesaSchema = z.object({
   descricao: z.string().min(3, "Descreva a despesa."),
-  
-  // Usamos o preprocess para tratar a vírgula (Ex: "25,50")
   valor: z.preprocess(
     (val) => {
-      // Se for string (do input), limpa e converte
       if (typeof val === 'string') {
-        // Se a string estiver vazia, retorna undefined para o Zod tratar
         if (val.trim() === "") return undefined;
-        // Substitui vírgula por ponto (importante no Brasil) e converte
         const num = parseFloat(val.replace(',', '.'));
-        // Se a conversão falhar (ex: "abc"), retorna NaN para o Zod pegar
         return isNaN(num) ? undefined : num;
       }
-      // Se já for número, só repassa
       if (typeof val === 'number') {
         return val;
       }
-      // Se for qualquer outra coisa (undefined, null), falha na validação
       return undefined;
     },
-    // ✅ CORREÇÃO 1: Removemos o 'required_error' daqui.
     z.number()
      .min(0.01, "O valor deve ser maior que zero.")
   ),
-
   formaPagamento: z.enum(["pix", "dinheiro", "cartao_debito"]),
 });
 
 export default function DespesasPage() {
   const [despesasHoje, setDespesasHoje] = useState<Movimentacao[]>([]);
-  const [loading, setLoading] = useState(true);
+  // Renomeado para evitar conflito
+  const [listLoading, setListLoading] = useState(true);
+
+  // --- 2. GUARDIÃO DE ROTA (O "PORTEIRO") ---
+  const { userData, loading: authLoading } = useAuth();
+  const router = useRouter();
+
+  if (authLoading) {
+    // Se está checando o login, mostra tela de carregamento
+    return (
+      <div className="flex h-screen w-full items-center justify-center">
+        Carregando permissões...
+      </div>
+    );
+  }
+
+  if (!userData || userData.role !== 'admin') {
+    // Se não tem usuário ou SE NÃO FOR ADMIN, manda embora
+    router.push('/');
+    return (
+       <div className="flex h-screen w-full items-center justify-center">
+         Acesso negado. Redirecionando...
+       </div>
+    );
+  }
+  // --- FIM DO GUARDIÃO ---
+
 
   // --- Efeito para buscar as despesas de HOJE ---
+  // (Só vai rodar se o usuário for ADMIN, pois o guardião já barrou os outros)
   useEffect(() => {
-    setLoading(true);
+    setListLoading(true);
 
     const hoje = new Date();
     const inicioDoDia = new Date(hoje.setHours(0, 0, 0, 0));
@@ -110,18 +131,17 @@ export default function DespesasPage() {
         listaDespesas.push({ id: doc.id, ...doc.data() } as Movimentacao);
       });
       setDespesasHoje(listaDespesas);
-      setLoading(false);
+      setListLoading(false);
     });
 
     return () => unsub();
-  }, []);
+  }, []); // Dependência vazia, pois só roda 1x para o admin
 
   // --- Configuração do Formulário de Despesa ---
   const form = useForm<z.infer<typeof despesaSchema>>({
     resolver: zodResolver(despesaSchema), 
     defaultValues: {
       descricao: "",
-      // ✅ CORREÇÃO 2: Trocamos 'undefined' por 'NaN' para alinhar os tipos
       valor: NaN, 
       formaPagamento: "dinheiro",
     },
@@ -134,7 +154,7 @@ export default function DespesasPage() {
         data: new Date(),
         tipo: "saida",
         descricao: values.descricao,
-        valor: values.valor, // O Zod já garantiu que 'valor' é um número
+        valor: values.valor, 
         formaPagamento: values.formaPagamento,
       });
 
@@ -145,6 +165,7 @@ export default function DespesasPage() {
     }
   }
 
+  // --- Se chegou aqui, é ADMIN e pode ver a página ---
   return (
     <div>
       <h1 className="text-4xl font-bold mb-6">Lançar Despesas (Saídas)</h1>
@@ -177,12 +198,10 @@ export default function DespesasPage() {
                   <FormItem className="w-full md:w-auto">
                     <FormLabel>Valor (R$)</FormLabel>
                     <FormControl>
-                      {/* O 'type=text' é importante para o preprocess tratar a vírgula */}
                       <Input 
                         type="text" 
                         placeholder="25,50" 
                         {...field}
-                        // Isso garante que o NaN não apareça no campo
                         value={isNaN(field.value) ? '' : field.value} 
                       />
                     </FormControl>
@@ -233,21 +252,21 @@ export default function DespesasPage() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {loading && (
+            {listLoading && (
               <TableRow>
                 <TableCell colSpan={4} className="text-center">
                   Carregando...
                 </TableCell>
               </TableRow>
             )}
-            {!loading && despesasHoje.length === 0 && (
+            {!listLoading && despesasHoje.length === 0 && (
               <TableRow>
                 <TableCell colSpan={4} className="text-center">
                   Nenhuma despesa registrada hoje.
                 </TableCell>
               </TableRow>
             )}
-            {!loading && despesasHoje.map((despesa) => (
+            {!listLoading && despesasHoje.map((despesa) => (
               <TableRow key={despesa.id}>
                 <TableCell>
                   {new Date(despesa.data.seconds * 1000).toLocaleTimeString()}

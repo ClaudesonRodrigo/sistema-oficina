@@ -8,14 +8,17 @@ import { z } from "zod";
 import {
   collection,
   onSnapshot,
-  addDoc,
   doc,
   setDoc,
   deleteDoc,
-  getDoc
 } from "firebase/firestore";
-import { createUserWithEmailAndPassword } from "firebase/auth"; // Importa a função de criar usuário
-import { db, auth } from "@/lib/firebase";
+// REMOVEMOS createUserWithEmailAndPassword e auth
+import { db } from "@/lib/firebase";
+
+import { useAuth } from "@/context/AuthContext";
+import { useRouter } from "next/navigation";
+
+// Componentes Shadcn
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -51,7 +54,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-// Interface para o usuário (igual a do AuthContext)
 interface UserData {
   id: string;
   nome: string;
@@ -59,7 +61,6 @@ interface UserData {
   role: "admin" | "operador";
 }
 
-// Schema de validação Zod
 const formSchema = z.object({
   nome: z.string().min(3, "Nome muito curto"),
   email: z.string().email("E-mail inválido"),
@@ -71,17 +72,45 @@ export default function UsuariosPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [usuarios, setUsuarios] = useState<UserData[]>([]);
 
+  // --- GUARDIÃO DE ROTA ---
+  const { userData, loading: authLoading } = useAuth();
+  const router = useRouter();
+
+  if (authLoading) {
+    return (
+      <div className="flex h-screen w-full items-center justify-center">
+        Carregando permissões...
+      </div>
+    );
+  }
+
+  if (!userData || userData.role !== 'admin') {
+    router.push('/');
+    return (
+       <div className="flex h-screen w-full items-center justify-center">
+         Acesso negado. Redirecionando...
+       </div>
+    );
+  }
+  // --- FIM DO GUARDIÃO ---
+
+
   // Efeito para carregar os usuários
   useEffect(() => {
+    // Este onSnapshot só roda se o usuário for admin (devido ao guardião)
+    // E agora vai funcionar, pois o admin (após o Passo 1) tem o token correto
     const unsub = onSnapshot(collection(db, "usuarios"), (snapshot) => {
       const lista: UserData[] = [];
       snapshot.forEach((doc) => {
         lista.push({ id: doc.id, ...doc.data() } as UserData);
       });
       setUsuarios(lista);
+    }, (error) => {
+       // O erro de permissão não deve mais acontecer aqui
+       console.error("Erro no listener de usuários (verifique as regras):", error);
     });
     return () => unsub();
-  }, []);
+  }, []); // Dependência vazia
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -93,35 +122,31 @@ export default function UsuariosPage() {
     },
   });
 
-  // Função para criar o novo usuário
+  // --- FUNÇÃO onSubmit ATUALIZADA ---
   async function onSubmit(values: z.infer<typeof formSchema>) {
     try {
-      // 1. Cria o usuário no Firebase Authentication
-      // IMPORTANTE: Isso usa a "auth" principal, o que pode deslogar o admin.
-      // A forma 100% correta usa o Admin SDK no backend (Node.js),
-      // mas para o MVP isso funciona, embora possa pedir um novo login ao admin.
-      const userCredential = await createUserWithEmailAndPassword(
-        auth,
-        values.email,
-        values.password
-      );
-      const user = userCredential.user;
-
-      // 2. Salva os dados dele no Firestore
-      const userDocRef = doc(db, "usuarios", user.uid);
-      await setDoc(userDocRef, {
-        nome: values.nome,
-        email: values.email,
-        role: values.role,
+      // 1. Chama a Netlify Function
+      const response = await fetch('/.netlify/functions/criarUsuarioComRole', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(values),
       });
 
-      console.log("Usuário criado com sucesso:", user.uid);
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || "Erro desconhecido ao criar usuário");
+      }
+
+      console.log("Usuário criado com sucesso pela Netlify Function:", result.uid);
       form.reset();
       setIsModalOpen(false);
       
     } catch (error: any) {
-      console.error("Erro ao criar usuário:", error);
-      if (error.code === 'auth/email-already-in-use') {
+      console.error("Erro ao chamar Netlify Function:", error);
+      if (error.message.includes('email-already-exists')) {
         alert("Erro: Este e-mail já está em uso.");
       } else {
         alert("Erro ao criar usuário: " + error.message);
@@ -240,7 +265,7 @@ export default function UsuariosPage() {
                     onClick={async () => {
                       if (confirm(`Tem certeza que quer excluir ${usuario.nome}? Isso NÃO pode ser desfeito.`)) {
                         // TODO: Excluir o usuário do AUTH (requer backend)
-                        // Por enquanto, só exclui do Firestore
+                        // Vamos precisar de outra Netlify Function para isso
                         await deleteDoc(doc(db, "usuarios", usuario.id));
                       }
                     }}>

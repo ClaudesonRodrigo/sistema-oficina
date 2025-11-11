@@ -9,6 +9,10 @@ import { z } from "zod";
 import { db } from "@/lib/firebase";
 import { collection, addDoc, onSnapshot } from "firebase/firestore"; 
 
+// --- 1. IMPORTAÇÕES DE AUTENTICAÇÃO E ROTEAMENTO ---
+import { useAuth } from "@/context/AuthContext";
+import { useRouter } from "next/navigation";
+
 // Componentes Shadcn
 import { Button } from "@/components/ui/button";
 import {
@@ -38,16 +42,14 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 
-// 1. DEFININDO A "CARA" DO NOSSO FORNECEDOR
 interface Fornecedor {
-  id: string; // O ID do documento no Firebase
+  id: string; 
   nome: string;
   telefone?: string;
   cnpj?: string;
-  vendedor?: string; // Nome do contato/vendedor
+  vendedor?: string; 
 }
 
-// 2. DEFININDO O "CONTRATO" (SCHEMA) DO FORMULÁRIO
 const formSchema = z.object({
   nome: z.string().min(3, { message: "O nome deve ter pelo menos 3 caracteres." }),
   telefone: z.string().optional(),
@@ -57,13 +59,37 @@ const formSchema = z.object({
 
 export default function FornecedoresPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
-  
-  // 3. ESTADO PARA GUARDAR OS FORNECEDORES
   const [fornecedores, setFornecedores] = useState<Fornecedor[]>([]);
 
-  // 4. LIGANDO O "OUVINTE" DO FIREBASE
+  // --- 2. GUARDIÃO DE ROTA (O "PORTEIRO") ---
+  const { userData, loading: authLoading } = useAuth();
+  const router = useRouter();
+
+  if (authLoading) {
+    return (
+      <div className="flex h-screen w-full items-center justify-center">
+        Carregando permissões...
+      </div>
+    );
+  }
+
+  // ATENÇÃO: A regra que definimos permite 'operador' LER fornecedores.
+  // Se você quiser que SÓ ADMIN veja esta página, mude para:
+  // if (!userData || userData.role !== 'admin') {
+
+  if (!userData) { // Se só precisa estar logado
+    router.push('/login');
+    return (
+       <div className="flex h-screen w-full items-center justify-center">
+         Redirecionando...
+       </div>
+    );
+  }
+  // --- FIM DO GUARDIÃO ---
+
+
+  // (Este useEffect pode rodar para todos logados, pois a regra permite LEITURA)
   useEffect(() => {
-    // Ouvindo a coleção "fornecedores"
     const unsub = onSnapshot(collection(db, "fornecedores"), (querySnapshot) => {
       const listaDeFornecedores: Fornecedor[] = [];
       querySnapshot.forEach((doc) => {
@@ -72,13 +98,12 @@ export default function FornecedoresPage() {
           ...doc.data()
         } as Fornecedor);
       });
-      setFornecedores(listaDeFornecedores); // Atualiza o estado
+      setFornecedores(listaDeFornecedores); 
     });
 
-    return () => unsub(); // Desliga o ouvinte
-  }, []); // Roda só uma vez
+    return () => unsub(); 
+  }, []); 
 
-  // Configurando o formulário
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
@@ -89,14 +114,10 @@ export default function FornecedoresPage() {
     },
   });
 
-  // 5. A FUNÇÃO DE SALVAR (ADAPTADA PARA FORNECEDORES)
   async function onSubmit(values: z.infer<typeof formSchema>) {
     try {
-      // Salvando diretamente na coleção "fornecedores"
       const docRef = await addDoc(collection(db, "fornecedores"), values);
-      
       console.log("Fornecedor salvo com ID: ", docRef.id);
-      
       form.reset();
       setIsModalOpen(false);
 
@@ -122,7 +143,6 @@ export default function FornecedoresPage() {
               </DialogDescription>
             </DialogHeader>
 
-            {/* ===== 6. O FORMULÁRIO ADAPTADO ===== */}
             <Form {...form}>
               <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
                 
@@ -197,7 +217,6 @@ export default function FornecedoresPage() {
         </Dialog>
       </div>
 
-      {/* ===== 7. TABELA ADAPTADA PARA FORNECEDORES ===== */}
       <div className="rounded-md border">
         <Table>
           <TableHeader>

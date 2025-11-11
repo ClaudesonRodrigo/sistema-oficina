@@ -19,6 +19,10 @@ import { db } from "@/lib/firebase";
 import { cn } from "@/lib/utils";
 import { Check, ChevronsUpDown, Trash2 } from "lucide-react";
 
+// --- 1. IMPORTAÇÕES DE AUTENTICAÇÃO E ROTEAMENTO ---
+import { useAuth } from "@/context/AuthContext";
+import { useRouter } from "next/navigation";
+
 // --- Importações dos componentes Shadcn ---
 import { Button } from "@/components/ui/button";
 import {
@@ -58,9 +62,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-// --- CORREÇÃO: Importações do Card e Footer ---
 import { Card, CardContent } from "@/components/ui/card";
-import { DialogFooter } from "@/components/ui/dialog"; // Usado para o espaçamento do botão
+import { DialogFooter } from "@/components/ui/dialog"; 
 
 
 // --- Tipos de Dados (Interfaces) ---
@@ -77,19 +80,18 @@ interface Produto {
 }
 
 // --- Schema de Validação ZOD ---
-// Este schema é mais simples e não deve dar erro no build
 const compraFormSchema = z.object({
   fornecedorId: z.string().min(1, "Selecione um fornecedor."),
   formaPagamento: z.enum(["pix", "dinheiro", "cartao_debito"]),
-  notaFiscal: z.string().optional(), // Número da NF-e de compra
+  notaFiscal: z.string().optional(), 
   itens: z
     .array(
       z.object({
-        id: z.string(), // ID do produto
+        id: z.string(), 
         nome: z.string(),
         qtde: z.coerce.number().min(1, "Qtde deve ser 1+"),
-        precoCustoUnitario: z.coerce.number().min(0, "Custo deve ser 0+"), // O novo custo
-        estoqueAntigo: z.number(), // O estoque antes da compra
+        precoCustoUnitario: z.coerce.number().min(0, "Custo deve ser 0+"), 
+        estoqueAntigo: z.number(), 
       })
     )
     .min(1, "Adicione pelo menos uma peça."),
@@ -100,7 +102,31 @@ export default function EntradaEstoquePage() {
   const [produtos, setProdutos] = useState<Produto[]>([]);
   const [isComboboxOpen, setIsComboboxOpen] = useState(false);
 
+  // --- 2. GUARDIÃO DE ROTA (O "PORTEIRO") ---
+  const { userData, loading: authLoading } = useAuth();
+  const router = useRouter();
+
+  if (authLoading) {
+    return (
+      <div className="flex h-screen w-full items-center justify-center">
+        Carregando permissões...
+      </div>
+    );
+  }
+
+  if (!userData || userData.role !== 'admin') {
+    router.push('/');
+    return (
+       <div className="flex h-screen w-full items-center justify-center">
+         Acesso negado. Redirecionando...
+       </div>
+    );
+  }
+  // --- FIM DO GUARDIÃO ---
+
+
   // --- Efeito para Buscar Fornecedores e Produtos ---
+  // (Só roda se for ADMIN)
   useEffect(() => {
     // 1. Buscar Fornecedores
     const unsubForn = onSnapshot(collection(db, "fornecedores"), (snapshot) => {
@@ -121,7 +147,7 @@ export default function EntradaEstoquePage() {
       unsubForn();
       unsubProd();
     };
-  }, []);
+  }, []); // Dependência vazia, roda 1x
 
   // --- Configuração do Formulário ---
   const form = useForm<z.infer<typeof compraFormSchema>>({
@@ -152,7 +178,7 @@ export default function EntradaEstoquePage() {
       id: produto.id,
       nome: produto.nome,
       qtde: 1,
-      precoCustoUnitario: produto.precoCusto, // Puxa o último custo cadastrado
+      precoCustoUnitario: produto.precoCusto, 
       estoqueAntigo: produto.estoqueAtual,
     });
     setIsComboboxOpen(false);
@@ -175,7 +201,6 @@ export default function EntradaEstoquePage() {
     }
 
     try {
-      // Usamos uma transação para garantir que tudo (estoque e despesa) funcione
       await runTransaction(db, async (transaction) => {
         // 1. Atualiza o estoque e o custo de cada produto
         for (const item of values.itens) {
@@ -184,7 +209,7 @@ export default function EntradaEstoquePage() {
           
           transaction.update(produtoRef, { 
             estoqueAtual: novoEstoque,
-            precoCusto: item.precoCustoUnitario // Atualiza o custo da peça
+            precoCusto: item.precoCustoUnitario 
           });
         }
 
@@ -192,11 +217,11 @@ export default function EntradaEstoquePage() {
         const movRef = doc(collection(db, "movimentacoes"));
         transaction.set(movRef, {
           data: new Date(),
-          tipo: "saida", // Compra é uma SAÍDA de caixa
+          tipo: "saida", 
           descricao: `Compra NF #${values.notaFiscal || 'S/N'} - Forn: ${fornecedorSelecionado.nome}`,
           valor: custoTotalCompra,
           formaPagamento: values.formaPagamento,
-          referenciaId: values.notaFiscal, // Guarda a NF da compra
+          referenciaId: values.notaFiscal, 
         });
       });
 
@@ -225,7 +250,6 @@ export default function EntradaEstoquePage() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Fornecedor</FormLabel>
-                      {/* ✅ CORREÇÃO: FormControl agora envolve o Select inteiro */}
                       <FormControl>
                         <Select onValueChange={field.onChange} defaultValue={field.value}>
                           <SelectTrigger>
@@ -250,7 +274,6 @@ export default function EntradaEstoquePage() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Forma de Pagamento</FormLabel>
-                      {/* ✅ CORREÇÃO: FormControl agora envolve o Select inteiro */}
                       <FormControl>
                         <Select onValueChange={field.onChange} defaultValue={field.value}>
                           <SelectTrigger>

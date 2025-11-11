@@ -5,14 +5,13 @@ import { useState, useEffect } from "react";
 import { useForm, useFieldArray } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-// IMPORTAÇÕES CORRIGIDAS: Adicionado getDocs, query, where
+// IMPORTAÇÕES ATUALIZADAS: Removemos 'runTransaction' e 'Timestamp'
+// Adicionamos 'getDocs', 'query', 'where'
 import {
   collection,
   addDoc,
   onSnapshot,
-  runTransaction,
   doc,
-  Timestamp,
   getDocs,
   query,
   where,
@@ -80,7 +79,7 @@ interface Cliente {
 interface Produto {
   id: string;
   nome: string;
-  precoCusto: number; // <-- Adicionado pela Dica 1
+  precoCusto: number;
   precoVenda: number;
   estoqueAtual: number;
   tipo: "peca" | "servico";
@@ -108,8 +107,8 @@ const osFormSchema = z.object({
         id: z.string(),
         nome: z.string(),
         qtde: z.coerce.number().min(1, "Qtde deve ser 1+"),
-        precoCusto: z.coerce.number(), // <-- Adicionado pela Dica 1
-        precoUnitario: z.coerce.number(), // (Preço de Venda)
+        precoCusto: z.coerce.number(),
+        precoUnitario: z.coerce.number(),
         tipo: z.enum(["peca", "servico"]),
         estoqueAtual: z.number(),
       })
@@ -124,7 +123,7 @@ export default function OsPage() {
   const [produtos, setProdutos] = useState<Produto[]>([]);
   const [isComboboxOpen, setIsComboboxOpen] = useState(false);
 
-  // --- Efeito para Buscar TODOS os dados ---
+  // --- Efeito para Buscar TODOS os dados (Sem mudanças) ---
   useEffect(() => {
     const unsubOS = onSnapshot(collection(db, "ordensDeServico"), (snapshot) => {
       setOrdensDeServico(
@@ -150,7 +149,7 @@ export default function OsPage() {
     };
   }, []);
 
-  // --- Configuração do Formulário ---
+  // --- Configuração do Formulário (Sem mudanças) ---
   const form = useForm<z.infer<typeof osFormSchema>>({
     resolver: zodResolver(osFormSchema),
     defaultValues: {
@@ -158,64 +157,53 @@ export default function OsPage() {
       veiculoPlaca: "",
       veiculoModelo: "",
       servicosDescricao: "",
-      garantiaDias: 90, // <-- Campo da Garantia
+      garantiaDias: 90,
       itens: [],
     },
   });
 
-  // CORREÇÃO 1: Adicionado "update" do useFieldArray
   const { fields, append, remove, update } = useFieldArray({
     control: form.control,
     name: "itens",
   });
 
-  // CORREÇÃO 2: Função "adicionarProduto" agora soma quantidade E ADICIONA CUSTO
+  // --- Função adicionarProduto (Sem mudanças) ---
   const adicionarProduto = (produto: Produto) => {
     const itemIndex = fields.findIndex((field) => field.id === produto.id);
 
     if (itemIndex > -1) {
-      // --- SE O ITEM JÁ EXISTE ---
       const item = fields[itemIndex];
       const novaQtde = item.qtde + 1;
-
-      // Validação de estoque (só para 'peca')
       if (produto.tipo === "peca" && novaQtde > produto.estoqueAtual) {
         alert(
           `Estoque máximo (${produto.estoqueAtual}) atingido para ${produto.nome}.`
         );
         return;
       }
-      // Atualiza a quantidade do item existente
       update(itemIndex, { ...item, qtde: novaQtde });
     } else {
-      // --- SE O ITEM É NOVO ---
-      // Adiciona o novo item ao array
       append({
         id: produto.id,
         nome: produto.nome,
         qtde: 1,
-        precoCusto: produto.precoCusto, // <-- SALVA O CUSTO (Dica 1)
+        precoCusto: produto.precoCusto,
         precoUnitario: produto.precoVenda,
         tipo: produto.tipo,
         estoqueAtual: produto.estoqueAtual,
       });
     }
-    // Fecha o popover em ambos os casos
     setIsComboboxOpen(false);
   };
 
-  // CORREÇÃO 3: Usar "form.watch" para o total recalcular em tempo real
+  // --- Cálculos de Total (Sem mudanças) ---
   const watchedItens = form.watch("itens");
-  // CALCULA O TOTAL DE VENDA
   const valorTotalOS = watchedItens.reduce((total, item) => {
     const quantidade = item.qtde || 0; 
     return total + (item.precoUnitario * quantidade);
   }, 0);
   
-  // NOVO (Dica 1): CALCULA O CUSTO TOTAL
   const custoTotalOS = watchedItens.reduce((total, item) => {
     const quantidade = item.qtde || 0;
-    // Soma o custo apenas se for 'peca'
     if (item.tipo === 'peca') {
       return total + (item.precoCusto * quantidade);
     }
@@ -223,10 +211,12 @@ export default function OsPage() {
   }, 0);
 
 
-  // --- FUNÇÃO ON SUBMIT (COM VERIFICAÇÃO DE DUPLICADA E CUSTO) ---
+  // --- ====================================================== ---
+  // --- FUNÇÃO ON SUBMIT (TOTALMENTE MODIFICADA) ---
+  // --- ====================================================== ---
   async function onSubmit(values: z.infer<typeof osFormSchema>) {
     
-    // --- CORREÇÃO 4: Verificação de OS aberta ---
+    // 1. Verificação de OS aberta (continua no client-side)
     try {
       const q = query(
         collection(db, "ordensDeServico"),
@@ -250,55 +240,70 @@ export default function OsPage() {
     const clienteSelecionado = clientes.find((c) => c.id === values.clienteId);
     if (!clienteSelecionado) {
       console.error("Cliente não encontrado");
+      alert("Cliente não encontrado");
       return;
     }
 
-    const novaOS = {
+    // 2. Montamos o objeto da OS aqui no frontend
+    const novaOSParaEnvio = {
       numeroOS: Math.floor(Math.random() * 10000) + 1,
-      dataAbertura: new Date(),
+      dataAbertura: new Date(), // Enviamos como objeto Date
       status: "aberta" as "aberta",
       clienteId: values.clienteId,
       nomeCliente: clienteSelecionado.nome,
       veiculoPlaca: values.veiculoPlaca.toUpperCase(),
       veiculoModelo: values.veiculoModelo,
       servicosDescricao: values.servicosDescricao,
-      garantiaDias: values.garantiaDias, // <-- Campo da Garantia
-      itens: values.itens.map((item) => ({
+      garantiaDias: values.garantiaDias, 
+      itens: values.itens.map((item) => ({ // Mapeia para um objeto mais limpo
         id: item.id,
         nome: item.nome,
         qtde: item.qtde,
-        precoCusto: item.precoCusto, // <-- SALVA O CUSTO NO ITEM (Dica 1)
+        precoCusto: item.precoCusto,
         precoUnitario: item.precoUnitario,
         tipo: item.tipo,
       })),
       valorTotal: valorTotalOS,
-      custoTotal: custoTotalOS, // <-- SALVA O CUSTO TOTAL NA OS (Dica 1)
+      custoTotal: custoTotalOS,
     };
 
+    // 3. REMOVEMOS A TRANSAÇÃO LOCAL E CHAMAMOS A NETLIFY FUNCTION!
     try {
-      await runTransaction(db, async (transaction) => {
-        const osRef = doc(collection(db, "ordensDeServico"));
-        transaction.set(osRef, novaOS);
-        for (const item of values.itens) {
-          // CORREÇÃO: Só atualiza estoque se for 'peca'
-          if (item.tipo === "peca") {
-            const produtoRef = doc(db, "produtos", item.id);
-            const novoEstoque = item.estoqueAtual - item.qtde;
-            if (novoEstoque < 0) {
-              throw new Error(`Estoque insuficiente para ${item.nome}.`);
-            }
-            transaction.update(produtoRef, { estoqueAtual: novoEstoque });
-          }
-        }
+      // O endpoint é sempre /.netlify/functions/NOME_DO_ARQUIVO
+      const response = await fetch('/.netlify/functions/criarOS', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          novaOS: novaOSParaEnvio, // O objeto da OS que a função vai salvar
+          itens: values.itens,      // A lista de itens (com estoqueAtual) que a função vai validar
+        }),
       });
-      console.log("OS salva e estoque atualizado com sucesso!");
+
+      const result = await response.json();
+
+      // Se a resposta NÃO for OK (erro 500, 404, etc)
+      if (!response.ok) {
+        // Mostra o erro que veio da Netlify Function (ex: "Estoque insuficiente")
+        throw new Error(result.error || "Erro desconhecido ao salvar OS");
+      }
+
+      // 4. Se deu tudo certo!
+      console.log("OS salva pela Netlify Function!", result.message);
       form.reset();
       setIsModalOpen(false);
+
     } catch (error: any) {
-      console.error("Erro na transação: ", error);
-      alert(error.message);
+      console.error("Erro ao chamar a Netlify Function criarOS: ", error);
+      // Mostra o alerta de erro para o usuário
+      alert("Erro ao salvar: " + error.message);
     }
   }
+  // --- ====================================================== ---
+  // --- FIM DA FUNÇÃO ON SUBMIT MODIFICADA ---
+  // --- ====================================================== ---
+
 
   return (
     <div>
@@ -317,6 +322,8 @@ export default function OsPage() {
             </DialogHeader>
             <Form {...form}>
               <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+                
+                {/* --- SEÇÃO DADOS DO CLIENTE (Sem mudanças) --- */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <FormField
                     control={form.control}
@@ -369,6 +376,8 @@ export default function OsPage() {
                     )}
                   />
                 </div>
+
+                {/* --- SEÇÃO OBSERVAÇÕES E GARANTIA (Sem mudanças) --- */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <FormField
                     control={form.control}
@@ -400,6 +409,8 @@ export default function OsPage() {
                     )}
                   />
                 </div>
+
+                {/* --- SEÇÃO ADICIONAR ITENS (Sem mudanças) --- */}
                 <div>
                   <FormLabel>Adicionar Peças e Serviços</FormLabel>
                   <Popover open={isComboboxOpen} onOpenChange={setIsComboboxOpen}>
@@ -436,6 +447,8 @@ export default function OsPage() {
                   </Popover>
                   <FormMessage>{form.formState.errors.itens?.message}</FormMessage>
                 </div>
+
+                {/* --- TABELA DE ITENS (Sem mudanças) --- */}
                 <div className="rounded-md border">
                   <Table>
                     <TableHeader>
@@ -467,7 +480,6 @@ export default function OsPage() {
                                   {...field}
                                   onChange={(e) => {
                                     const novaQtde = parseInt(e.target.value) || 0;
-                                    // CORREÇÃO: Só valida estoque se for 'peca'
                                     if (item.tipo === "peca" && novaQtde > item.estoqueAtual) {
                                       form.setError(`itens.${index}.qtde`, {
                                         type: "manual",
@@ -484,7 +496,6 @@ export default function OsPage() {
                             <FormMessage>{form.formState.errors.itens?.[index]?.qtde?.message}</FormMessage>
                           </TableCell>
                           <TableCell>R$ {item.precoUnitario.toFixed(2)}</TableCell>
-                          {/* CORREÇÃO: Garante que qtde não seja NaN */}
                           <TableCell>R$ {(item.precoUnitario * (item.qtde || 0)).toFixed(2)}</TableCell>
                           <TableCell>
                             <Button type="button" variant="destructive" size="icon-sm" onClick={() => remove(index)}>
@@ -496,7 +507,8 @@ export default function OsPage() {
                     </TableBody>
                   </Table>
                 </div>
-                {/* --- TOTAL E CUSTO (Dica 1) --- */}
+
+                {/* --- TOTAIS E BOTÃO (Sem mudanças) --- */}
                 <div className="flex justify-between items-center">
                   <h2 className="text-lg font-medium text-gray-600">
                     Custo Peças: R$ {custoTotalOS.toFixed(2)}
@@ -515,6 +527,8 @@ export default function OsPage() {
           </DialogContent>
         </Dialog>
       </div>
+
+      {/* --- TABELA DE LISTAGEM DE OS (Sem mudanças) --- */}
       <div className="rounded-md border">
         <Table>
           <TableHeader>

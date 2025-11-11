@@ -5,10 +5,13 @@ import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-// 1. IMPORTAÇÕES ADICIONADAS
 import { collection, addDoc, onSnapshot, query, where, getDocs } from "firebase/firestore"; 
 import { db } from "@/lib/firebase";
-import { Search } from "lucide-react"; // Ícone de busca
+import { Search } from "lucide-react"; 
+
+// --- 1. IMPORTAÇÕES DE AUTENTICAÇÃO E ROTEAMENTO ---
+import { useAuth } from "@/context/AuthContext";
+import { useRouter } from "next/navigation";
 
 // Componentes Shadcn
 import { Button } from "@/components/ui/button";
@@ -56,8 +59,6 @@ interface Produto {
   estoqueAtual: number;
   tipo: "peca" | "servico";
 }
-
-// Interface para os itens dentro de uma OS
 interface ItemOS {
   id: string;
   qtde: number;
@@ -67,18 +68,11 @@ interface ItemOS {
 const formSchema = z.object({
   nome: z.string().min(3, { message: "O nome deve ter pelo menos 3 caracteres." }),
   codigoSku: z.string().optional(),
-  
-  // ===== AQUI ESTÁ A SUA CORREÇÃO APLICADA =====
-  // Simplificado para remover o objeto que causa o erro de build
   tipo: z.enum(["peca", "servico"]),
-  // ============================================
-
   precoCusto: z.coerce.number().min(0, { message: "O custo deve ser positivo." }),
   precoVenda: z.coerce.number().min(0, { message: "O preço deve ser positivo." }),
-  // Validação para tipo 'peca'
   estoqueAtual: z.coerce.number().int({ message: "O estoque deve ser um número inteiro." }),
 }).refine((data) => {
-  // Se for 'servico', o estoque não importa (será 0), mas se for 'peca', deve ser >= 0
   if (data.tipo === 'peca') {
     return data.estoqueAtual >= 0;
   }
@@ -92,13 +86,34 @@ const formSchema = z.object({
 export default function ProdutosPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [produtos, setProdutos] = useState<Produto[]>([]);
-
-  // --- 2. NOVOS ESTADOS PARA O RELATÓRIO ---
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [selectedProduto, setSelectedProduto] = useState<Produto | null>(null);
   const [totalVendido, setTotalVendido] = useState<number | null>(null);
   const [loadingReport, setLoadingReport] = useState(false);
 
+  // --- 2. GUARDIÃO DE ROTA (O "PORTEIRO") ---
+  const { userData, loading: authLoading } = useAuth();
+  const router = useRouter();
+
+  if (authLoading) {
+    return (
+      <div className="flex h-screen w-full items-center justify-center">
+        Carregando permissões...
+      </div>
+    );
+  }
+
+  if (!userData || userData.role !== 'admin') {
+    router.push('/');
+    return (
+       <div className="flex h-screen w-full items-center justify-center">
+         Acesso negado. Redirecionando...
+       </div>
+    );
+  }
+  // --- FIM DO GUARDIÃO ---
+
+  // (Só roda se for ADMIN)
   useEffect(() => {
     const unsub = onSnapshot(collection(db, "produtos"), (querySnapshot) => {
       const listaDeProdutos: Produto[] = [];
@@ -111,7 +126,7 @@ export default function ProdutosPage() {
       setProdutos(listaDeProdutos);
     });
     return () => unsub();
-  }, []); 
+  }, []); // Dependência vazia, roda 1x
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -131,7 +146,6 @@ export default function ProdutosPage() {
     try {
       const dadosParaSalvar = {
         ...values,
-        // Se for serviço, força o estoque para 0, senão usa o valor digitado
         estoqueAtual: values.tipo === 'servico' ? 0 : values.estoqueAtual
       };
 
@@ -146,7 +160,6 @@ export default function ProdutosPage() {
     }
   }
 
-  // --- 3. NOVA FUNÇÃO PARA ABRIR O MODAL E CALCULAR VENDAS ---
   const handleVerRelatorio = async (produto: Produto) => {
     setSelectedProduto(produto);
     setIsReportModalOpen(true);
@@ -154,7 +167,6 @@ export default function ProdutosPage() {
     setTotalVendido(null);
 
     try {
-      // Esta query é pesada: ela busca em TODAS as OS
       const osRef = collection(db, "ordensDeServico");
       const q = query(osRef, where("status", "==", "finalizada"));
       const querySnapshot = await getDocs(q);
@@ -164,7 +176,6 @@ export default function ProdutosPage() {
         const os = doc.data();
         const itens = os.itens as ItemOS[];
         
-        // Loop dentro dos itens de cada OS
         if (itens && itens.length > 0) {
           itens.forEach((item) => {
             if (item.id === produto.id) {
@@ -177,7 +188,7 @@ export default function ProdutosPage() {
       setTotalVendido(total);
     } catch (error) {
       console.error("Erro ao calcular total vendido: ", error);
-      setTotalVendido(0); // Mostra 0 em caso de erro
+      setTotalVendido(0); 
     } finally {
       setLoadingReport(false);
     }
@@ -284,7 +295,6 @@ export default function ProdutosPage() {
                   />
                 </div>
                 
-                {/* MOSTRA O CAMPO ESTOQUE APENAS SE FOR 'PECA' */}
                 {tipoProduto === 'peca' && (
                   <FormField
                     control={form.control}
@@ -338,7 +348,6 @@ export default function ProdutosPage() {
                 <TableCell>{produto.precoCusto?.toFixed(2)}</TableCell>
                 <TableCell>{produto.precoVenda.toFixed(2)}</TableCell>
                 <TableCell>
-                  {/* --- 4. NOVO BOTÃO DE RELATÓRIO --- */}
                   <Button variant="ghost" size="sm" onClick={() => handleVerRelatorio(produto)}>
                     <Search className="h-4 w-4 mr-2" />
                     Relatório
@@ -350,7 +359,7 @@ export default function ProdutosPage() {
         </Table>
       </div>
 
-      {/* --- 5. NOVO MODAL DE RELATÓRIO --- */}
+      {/* --- NOVO MODAL DE RELATÓRIO --- */}
       <Dialog open={isReportModalOpen} onOpenChange={setIsReportModalOpen}>
         <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>

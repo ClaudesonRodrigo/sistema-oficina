@@ -6,9 +6,12 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 
-// Importações do Firebase (NOSSA CONEXÃO)
 import { db } from "@/lib/firebase";
 import { collection, addDoc, onSnapshot } from "firebase/firestore"; 
+
+// --- 1. IMPORTAÇÕES DE AUTENTICAÇÃO E ROTEAMENTO ---
+import { useAuth } from "@/context/AuthContext";
+import { useRouter } from "next/navigation";
 
 // Importações dos componentes Shadcn
 import { Button } from "@/components/ui/button";
@@ -38,18 +41,14 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
-// import { toast } from "sonner"; // Descomentar se tiver instalado o Sonner
 
-// 1. DEFININDO A "CARA" DO NOSSO CLIENTE
 interface Cliente {
-  id: string; // O ID do documento no Firebase
+  id: string; 
   nome: string;
   telefone?: string;
   cpfCnpj?: string;
-  // TODO: Adicionar email e endereço no futuro
 }
 
-// 2. DEFININDO O "CONTRATO" (SCHEMA) DO FORMULÁRIO
 const formSchema = z.object({
   nome: z.string().min(3, { message: "O nome deve ter pelo menos 3 caracteres." }),
   telefone: z.string().optional(),
@@ -58,13 +57,36 @@ const formSchema = z.object({
 
 export default function ClientesPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
-  
-  // 3. ESTADO PARA GUARDAR OS CLIENTES VINDOS DO FIREBASE
   const [clientes, setClientes] = useState<Cliente[]>([]);
 
-  // 4. LIGANDO O "OUVINTE" DO FIREBASE (EM TEMPO REAL)
+  // --- 2. GUARDIÃO DE ROTA (O "PORTEIRO") ---
+  const { userData, loading: authLoading } = useAuth();
+  const router = useRouter();
+
+  if (authLoading) {
+    return (
+      <div className="flex h-screen w-full items-center justify-center">
+        Carregando permissões...
+      </div>
+    );
+  }
+
+  // ATENÇÃO: A regra que definimos permite 'operador' LER clientes.
+  // Se você quiser que SÓ ADMIN veja esta página, mude para:
+  // if (!userData || userData.role !== 'admin') {
+  
+  if (!userData) { // Se só precisa estar logado
+    router.push('/login');
+    return (
+       <div className="flex h-screen w-full items-center justify-center">
+         Redirecionando...
+       </div>
+    );
+  }
+  // --- FIM DO GUARDIÃO ---
+  
+  // (Este useEffect pode rodar para todos logados, pois a regra permite LEITURA)
   useEffect(() => {
-    // Ouvindo a coleção "clientes"
     const unsub = onSnapshot(collection(db, "clientes"), (querySnapshot) => {
       const listaDeClientes: Cliente[] = [];
       querySnapshot.forEach((doc) => {
@@ -73,13 +95,12 @@ export default function ClientesPage() {
           ...doc.data()
         } as Cliente);
       });
-      setClientes(listaDeClientes); // Atualiza o estado
+      setClientes(listaDeClientes); 
     });
 
-    return () => unsub(); // Desliga o ouvinte
-  }, []); // Roda só uma vez
+    return () => unsub(); 
+  }, []); 
 
-  // Configurando o formulário
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
@@ -89,21 +110,15 @@ export default function ClientesPage() {
     },
   });
 
-  // 5. A FUNÇÃO DE SALVAR (ADAPTADA PARA CLIENTES)
   async function onSubmit(values: z.infer<typeof formSchema>) {
     try {
-      // Salvando diretamente na coleção "clientes"
       const docRef = await addDoc(collection(db, "clientes"), values);
-      
       console.log("Cliente salvo com ID: ", docRef.id);
-      // toast.success("Cliente salvo com sucesso!");
-
       form.reset();
       setIsModalOpen(false);
 
     } catch (error) {
       console.error("Erro ao salvar cliente: ", error);
-      // toast.error("Erro ao salvar cliente.");
     }
   }
 
@@ -124,7 +139,6 @@ export default function ClientesPage() {
               </DialogDescription>
             </DialogHeader>
 
-            {/* ===== 6. O FORMULÁRIO ADAPTADO ===== */}
             <Form {...form}>
               <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
                 
@@ -185,7 +199,6 @@ export default function ClientesPage() {
         </Dialog>
       </div>
 
-      {/* ===== 7. TABELA ADAPTADA PARA CLIENTES ===== */}
       <div className="rounded-md border">
         <Table>
           <TableHeader>
