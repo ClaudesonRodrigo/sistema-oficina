@@ -24,24 +24,23 @@ interface OSData {
 let db: admin.firestore.Firestore;
 let initializationError: string | null = null;
 
-// --- Configuração do Admin SDK (Sem Base64) ---
+// --- Configuração do Admin SDK (Corrigida com .replace()) ---
 try {
   const projectId = process.env.FIREBASE_PROJECT_ID;
   const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
-  // 1. Lemos a chave "crua" (com múltiplas linhas)
-  const privateKey = process.env.FIREBASE_PRIVATE_KEY;
+  const privateKey = process.env.FIREBASE_PRIVATE_KEY; // Chave "crua"
 
   if (!projectId) throw new Error("Variável de ambiente FIREBASE_PROJECT_ID não foi encontrada.");
   if (!clientEmail) throw new Error("Variável de ambiente FIREBASE_CLIENT_EMAIL não foi encontrada.");
   if (!privateKey) throw new Error("Variável de ambiente FIREBASE_PRIVATE_KEY não foi encontrada.");
 
-  // 2. Inicializa o App
   if (!admin.apps.length) {
     admin.initializeApp({
       credential: admin.credential.cert({
         projectId: projectId,
         clientEmail: clientEmail,
-        privateKey: privateKey, // 3. Usa a chave "crua" diretamente
+        // --- ESTA É A CORREÇÃO DA SUA PESQUISA (Seção 1.3) ---
+        privateKey: privateKey.replace(/\\n/g, '\n'),
       }),
     });
     console.log("Firebase Admin (criarOS) inicializado com SUCESSO.");
