@@ -17,7 +17,7 @@ interface OSData {
     itens: any[];
     valorTotal: number;
     custoTotal: number;
-    ownerId: string; // ATUALIZADO: Campo de segurança
+    ownerId: string;
   };
   itens: any[]; // Itens completos do formulário (com estoqueAtual)
 }
@@ -25,7 +25,7 @@ interface OSData {
 let db: admin.firestore.Firestore;
 let initializationError: string | null = null;
 
-// --- Configuração do Admin SDK (Sem Base64) ---
+// --- Configuração do Admin SDK (Corrigida com .replace()) ---
 try {
   const projectId = process.env.FIREBASE_PROJECT_ID;
   const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
@@ -76,18 +76,21 @@ const handler: Handler = async (event: HandlerEvent) => {
     
     const { novaOS, itens } = JSON.parse(event.body) as OSData;
     
+    // --- ====================================================== ---
+    // --- LÓGICA DA TRANSAÇÃO CORRIGIDA ---
+    // --- ====================================================== ---
     await db.runTransaction(async (transaction) => {
-      // Converte a data (que vem como string no JSON) de volta para Timestamp
       novaOS.dataAbertura = new Date(novaOS.dataAbertura);
       
       const osRef = db.collection("ordensDeServico").doc();
-      // Salva a OS (que agora contém o ownerId vindo do frontend)
-      transaction.set(osRef, novaOS); 
-      
+      const produtosParaAtualizar = []; // Lista para guardar as atualizações
+
+      // --- 1. FASE DE LEITURA ---
+      // Primeiro, lemos TODOS os produtos
       for (const item of itens) {
         if (item.tipo === "peca") {
           const produtoRef = db.collection("produtos").doc(item.id);
-          const produtoDoc = await transaction.get(produtoRef);
+          const produtoDoc = await transaction.get(produtoRef); // <-- LEITURA
 
           if (!produtoDoc.exists) {
             throw new Error(`Produto ${item.nome} (ID: ${item.id}) não foi encontrado no banco de dados.`);
@@ -100,10 +103,26 @@ const handler: Handler = async (event: HandlerEvent) => {
             throw new Error(`Estoque insuficiente para ${item.nome}. Restam apenas ${estoqueAtual}.`);
           }
           
-          transaction.update(produtoRef, { estoqueAtual: novoEstoque });
+          // Guarda a atualização para depois
+          produtosParaAtualizar.push({
+            ref: produtoRef,
+            novoEstoque: novoEstoque
+          });
         }
       }
+
+      // --- 2. FASE DE ESCRITA ---
+      // Agora que todas as leituras acabaram, podemos escrever.
+      
+      // Escrita 1: Salva a nova OS
+      transaction.set(osRef, novaOS);
+      
+      // Escrita 2: Atualiza o estoque de cada produto
+      for (const prod of produtosParaAtualizar) {
+        transaction.update(prod.ref, { estoqueAtual: prod.novoEstoque });
+      }
     });
+    // --- FIM DA TRANSAÇÃO CORRIGIDA ---
 
     return {
       statusCode: 200,
