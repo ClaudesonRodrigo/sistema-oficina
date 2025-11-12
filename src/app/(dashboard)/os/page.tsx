@@ -95,7 +95,7 @@ interface OrdemDeServico {
   placaVeiculo: string;
   status: "aberta" | "finalizada" | "cancelada";
   valorTotal: number;
-  ownerId?: string; // ATUALIZADO
+  ownerId?: string; 
 }
 
 // --- Schema de Validação ZOD ---
@@ -138,7 +138,6 @@ export default function OsPage() {
       </div>
     );
   }
-  // Se não estiver logado, redireciona
   if (!userData) { 
     router.push('/login');
     return (
@@ -152,12 +151,11 @@ export default function OsPage() {
 
   // --- Efeito para Buscar TODOS os dados (ATUALIZADO) ---
   useEffect(() => {
-    // Só roda se o 'userData' estiver carregado
     if (userData) {
       // 1. Busca Ordens de Serviço (Apenas as do usuário logado)
       const qOS = query(
         collection(db, "ordensDeServico"),
-        where("ownerId", "==", userData.id) // ATUALIZADO: Filtro de segurança
+        where("ownerId", "==", userData.id) 
       );
       const unsubOS = onSnapshot(qOS, (snapshot) => {
         setOrdensDeServico(
@@ -167,18 +165,20 @@ export default function OsPage() {
         );
       });
 
-      // 2. Busca Clientes (Apenas os do usuário logado)
+      // --- MUDANÇA ESTÁ AQUI ---
+      // 2. Busca Clientes (CORRIGIDO: Busca TODOS os clientes)
+      // Removemos o filtro 'where("ownerId",...)'
       const qClientes = query(
-        collection(db, "clientes"),
-        where("ownerId", "==", userData.id) // ATUALIZADO: Filtro de segurança
+        collection(db, "clientes")
       );
+      // --- FIM DA MUDANÇA ---
       const unsubClientes = onSnapshot(qClientes, (snapshot) => {
         setClientes(
           snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as Cliente))
         );
       });
       
-      // 3. Busca Produtos (Catálogo é público para logados, não precisa de filtro)
+      // 3. Busca Produtos (Catálogo é público)
       const unsubProdutos = onSnapshot(collection(db, "produtos"), (snapshot) => {
         setProdutos(
           snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as Produto))
@@ -255,10 +255,9 @@ export default function OsPage() {
   }, 0);
 
 
-  // --- FUNÇÃO ON SUBMIT (ATUALIZADA) ---
+  // --- FUNÇÃO ON SUBMIT (Sem mudanças) ---
   async function onSubmit(values: z.infer<typeof osFormSchema>) {
     
-    // Verificação de segurança
     if (!userData) {
       alert("Erro: Usuário não autenticado.");
       return;
@@ -270,7 +269,7 @@ export default function OsPage() {
         collection(db, "ordensDeServico"),
         where("clienteId", "==", values.clienteId),
         where("status", "==", "aberta"),
-        where("ownerId", "==", userData.id) // ATUALIZADO: Só checa as SUAS OS
+        where("ownerId", "==", userData.id) 
       );
       
       const querySnapshot = await getDocs(q);
@@ -284,7 +283,6 @@ export default function OsPage() {
       alert("Erro ao verificar OS existente. Tente novamente.");
       return;
     }
-    // --- Fim da verificação ---
 
     const clienteSelecionado = clientes.find((c) => c.id === values.clienteId);
     if (!clienteSelecionado) {
@@ -292,7 +290,6 @@ export default function OsPage() {
       return;
     }
 
-    // 2. Montamos o objeto da OS (ATUALIZADO com ownerId)
     const novaOSParaEnvio = {
       numeroOS: Math.floor(Math.random() * 10000) + 1,
       dataAbertura: new Date(), 
@@ -313,10 +310,9 @@ export default function OsPage() {
       })),
       valorTotal: valorTotalOS,
       custoTotal: custoTotalOS,
-      ownerId: userData.id // ATUALIZADO: Adiciona o ID do dono
+      ownerId: userData.id 
     };
 
-    // 3. Chamamos a Netlify Function (sem mudanças aqui)
     try {
       const response = await fetch('/.netlify/functions/criarOS', {
         method: 'POST',
@@ -345,7 +341,7 @@ export default function OsPage() {
     }
   }
 
-  // --- Renderização (Se chegou aqui, está logado) ---
+  // --- Renderização ---
   return (
     <div>
       <div className="flex justify-between items-center mb-6">
@@ -379,7 +375,7 @@ export default function OsPage() {
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            {/* Agora só mostra os clientes do usuário logado */}
+                            {/* Agora a lista de clientes deve aparecer */}
                             {clientes.map((cliente) => (
                               <SelectItem key={cliente.id} value={cliente.id}>
                                 {cliente.nome}
