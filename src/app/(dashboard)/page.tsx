@@ -14,10 +14,10 @@ import {
   orderBy,
   onSnapshot,
   Timestamp,
+  Query, // Importa o tipo Query
 } from "firebase/firestore";
 import { useAuth } from "@/context/AuthContext";
 
-// --- (1) NOVO IMPORT ADICIONADO ---
 import AlertaEstoque from "@/components/AlertaEstoque";
 
 // Componentes Shadcn
@@ -103,15 +103,17 @@ export default function HomePage() {
   const [loadingProduto, setLoadingProduto] = useState(false);
   const [searchedProduto, setSearchedProduto] = useState(false);
 
-  // --- EFEITO PARA BUSCAR MOVIMENTAÇÕES (ATUALIZADO) ---
+  // --- EFEITO PARA BUSCAR MOVIMENTAÇÕES ---
   useEffect(() => {
-    if (isAdmin) {
+    if (isAdmin && userData) {
       setLoadingCaixa(true);
       const hoje = new Date();
       const inicioDoDia = new Date(hoje.setHours(0, 0, 0, 0));
       const fimDoDia = new Date(hoje.setHours(23, 59, 59, 999));
 
       const movRef = collection(db, "movimentacoes");
+      
+      // Admin vê tudo (se as regras permitirem)
       const q = query(
         movRef,
         where("data", ">=", inicioDoDia),
@@ -127,7 +129,7 @@ export default function HomePage() {
           const data = doc.data();
           if (data.tipo === "entrada") {
             faturamentoBruto += data.valor;
-            custoPecas += data.custo || 0; // Soma o custo (se existir)
+            custoPecas += data.custo || 0; 
           } else if (data.tipo === "saida") {
             saidas += data.valor;
           }
@@ -149,16 +151,22 @@ export default function HomePage() {
     } else {
       setLoadingCaixa(false); 
     }
-  }, [isAdmin]);
+  }, [isAdmin, userData]);
 
   // --- Configuração dos Formulários ---
+  
+  // --- CORREÇÃO AQUI: Adicionado mode: "onSubmit" ---
   const formBuscaPlaca = useForm<z.infer<typeof placaSearchSchema>>({
     resolver: zodResolver(placaSearchSchema),
     defaultValues: { placa: "" },
+    mode: "onSubmit", // <-- SÓ VALIDA QUANDO CLICAR EM SUBMIT
   });
+  
+  // --- CORREÇÃO AQUI: Adicionado mode: "onSubmit" ---
   const formBuscaProduto = useForm<z.infer<typeof produtoSearchSchema>>({
     resolver: zodResolver(produtoSearchSchema),
     defaultValues: { codigoSku: "" },
+    mode: "onSubmit", // <-- SÓ VALIDA QUANDO CLICAR EM SUBMIT
   });
 
   // --- Função de Busca por Placa ---
@@ -232,15 +240,13 @@ export default function HomePage() {
 
   return (
     <div>
-      
-      {/* --- (2) SESSÃO DE ALERTA ADICIONADA AQUI --- */}
+      {/* --- Alerta de Estoque (SÓ ADMIN) --- */}
       {isAdmin && <AlertaEstoque />}
 
-      {/* --- RESUMO DO CAIXA (SÓ ADMIN) - ATUALIZADO --- */}
+      {/* --- RESUMO DO CAIXA (SÓ ADMIN) --- */}
       {isAdmin && (
         <div className="mb-12">
           <h1 className="text-4xl font-bold mb-6">Resumo do Dia</h1>
-          {/* Grid agora com 5 colunas */}
           <div className="grid gap-4 md:grid-cols-5">
             {/* Card Faturamento Bruto */}
             <Card>
@@ -320,7 +326,7 @@ export default function HomePage() {
         <div className="mt-8 border-t pt-8">
           <h1 className="text-4xl font-bold mb-6">Consulta Rápida de Produto</h1>
           <Form {...formBuscaProduto}>
-            <form onSubmit={formBuscaProduto.handleSubmit(onProdutoSubmit)} className="flex gap-4 mb-8">
+            <form id="form-produto" onSubmit={formBuscaProduto.handleSubmit(onProdutoSubmit)} className="flex gap-4 mb-8">
               <FormField
                 control={formBuscaProduto.control}
                 name="codigoSku"
@@ -338,7 +344,7 @@ export default function HomePage() {
                   </FormItem>
                 )}
               />
-              <Button type="submit" disabled={loadingProduto} className="p-6 text-lg">
+              <Button type="submit" form="form-produto" disabled={loadingProduto} className="p-6 text-lg">
                 {loadingProduto ? "Buscando..." : "Buscar Produto"}
               </Button>
             </form>
@@ -384,7 +390,7 @@ export default function HomePage() {
         </p>
 
         <Form {...formBuscaPlaca}>
-          <form onSubmit={formBuscaPlaca.handleSubmit(onPlacaSubmit)} className="flex gap-4 mb-8">
+          <form id="form-placa" onSubmit={formBuscaPlaca.handleSubmit(onPlacaSubmit)} className="flex gap-4 mb-8">
             <FormField
               control={formBuscaPlaca.control}
               name="placa"
@@ -402,7 +408,7 @@ export default function HomePage() {
                 </FormItem>
               )}
             />
-            <Button type="submit" disabled={loadingPlaca} className="p-6 text-lg">
+            <Button type="submit" form="form-placa" disabled={loadingPlaca} className="p-6 text-lg">
               {loadingPlaca ? "Buscando..." : "Buscar Placa"}
             </Button>
           </form>

@@ -14,13 +14,13 @@ import {
   getDocs,
   query,
   where,
+  Query, // Importa o tipo 'Query'
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { cn } from "@/lib/utils";
 import { Check, ChevronsUpDown, Trash2 } from "lucide-react";
 import Link from "next/link";
 
-// --- 1. IMPORTAÇÕES DE AUTENTICAÇÃO E ROTEAMENTO ---
 import { useAuth } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
 
@@ -127,7 +127,7 @@ export default function OsPage() {
   const [produtos, setProdutos] = useState<Produto[]>([]);
   const [isComboboxOpen, setIsComboboxOpen] = useState(false);
 
-  // --- 2. GUARDIÃO DE ROTA (O "PORTEIRO") ---
+  // --- GUARDIÃO DE ROTA (O "PORTEIRO") ---
   const { userData, loading: authLoading } = useAuth();
   const router = useRouter();
 
@@ -149,14 +149,23 @@ export default function OsPage() {
   // --- FIM DO GUARDIÃO ---
 
 
-  // --- Efeito para Buscar TODOS os dados (ATUALIZADO) ---
+  // --- Efeito para Buscar TODOS os dados (ATUALIZADO COM LÓGICA DE ADMIN) ---
   useEffect(() => {
     if (userData) {
-      // 1. Busca Ordens de Serviço (Apenas as do usuário logado)
-      const qOS = query(
-        collection(db, "ordensDeServico"),
-        where("ownerId", "==", userData.id) 
-      );
+      const isAdmin = userData.role === 'admin';
+      
+      // --- 1. Lógica de Busca de OS ---
+      let qOS: Query;
+      const osRef = collection(db, "ordensDeServico");
+      
+      if (isAdmin) {
+        // ADMIN: Busca TODAS as OSs
+        qOS = query(osRef); 
+      } else {
+        // OPERADOR: Busca SÓ as suas OSs
+        qOS = query(osRef, where("ownerId", "==", userData.id));
+      }
+      
       const unsubOS = onSnapshot(qOS, (snapshot) => {
         setOrdensDeServico(
           snapshot.docs.map(
@@ -165,13 +174,9 @@ export default function OsPage() {
         );
       });
 
-      // --- MUDANÇA ESTÁ AQUI ---
-      // 2. Busca Clientes (CORRIGIDO: Busca TODOS os clientes)
-      // Removemos o filtro 'where("ownerId",...)'
-      const qClientes = query(
-        collection(db, "clientes")
-      );
-      // --- FIM DA MUDANÇA ---
+      // --- 2. Lógica de Busca de Clientes ---
+      // (Já estava correto, todos precisam ver todos os clientes)
+      const qClientes = query(collection(db, "clientes"));
       const unsubClientes = onSnapshot(qClientes, (snapshot) => {
         setClientes(
           snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as Cliente))
@@ -263,14 +268,27 @@ export default function OsPage() {
       return;
     }
 
-    // --- Verificação de OS aberta (continua igual) ---
+    // --- Verificação de OS aberta (CORRIGIDO com lógica de Admin) ---
     try {
-      const q = query(
-        collection(db, "ordensDeServico"),
-        where("clienteId", "==", values.clienteId),
-        where("status", "==", "aberta"),
-        where("ownerId", "==", userData.id) 
-      );
+      let q: Query;
+      const osRef = collection(db, "ordensDeServico");
+      
+      if (userData.role === 'admin') {
+         // Admin checa se o cliente tem OS aberta por QUALQUER usuário
+         q = query(
+          osRef,
+          where("clienteId", "==", values.clienteId),
+          where("status", "==", "aberta")
+         );
+      } else {
+         // Operador checa se o cliente tem OS aberta SÓ POR ELE
+         q = query(
+          osRef,
+          where("clienteId", "==", values.clienteId),
+          where("status", "==", "aberta"),
+          where("ownerId", "==", userData.id) 
+         );
+      }
       
       const querySnapshot = await getDocs(q);
       
@@ -581,7 +599,7 @@ export default function OsPage() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {/* Agora só lista as OSs do usuário logado */}
+            {/* Agora lista TODAS (admin) ou SÓ AS SUAS (operador) */}
             {ordensDeServico.map((os) => (
               <TableRow key={os.id}>
                 <TableCell>

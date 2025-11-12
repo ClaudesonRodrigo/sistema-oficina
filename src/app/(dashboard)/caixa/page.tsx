@@ -14,10 +14,10 @@ import {
   where,
   Timestamp,
   addDoc,
+  Query, // Importa o tipo 'Query'
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 
-// --- 1. IMPORTAÇÕES DE AUTENTICAÇÃO E ROTEAMENTO ---
 import { useAuth } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
 
@@ -65,7 +65,7 @@ interface OrdemDeServico {
   status: "aberta" | "finalizada" | "cancelada";
   valorTotal: number;
   custoTotal: number; 
-  ownerId?: string; // ATUALIZADO
+  ownerId?: string; 
 }
 
 // --- Schema de Validação ZOD para o pagamento ---
@@ -79,7 +79,7 @@ export default function CaixaPage() {
   
   const [selectedOS, setSelectedOS] = useState<OrdemDeServico | null>(null);
 
-  // --- 2. GUARDIÃO DE ROTA (O "PORTEIRO") ---
+  // --- GUARDIÃO DE ROTA (O "PORTEIRO") ---
   const { userData, loading: authLoading } = useAuth();
   const router = useRouter();
 
@@ -90,7 +90,6 @@ export default function CaixaPage() {
       </div>
     );
   }
-  // Se não estiver logado, redireciona
   if (!userData) { 
     router.push('/login');
     return (
@@ -101,18 +100,26 @@ export default function CaixaPage() {
   }
   // --- FIM DO GUARDIÃO ---
 
-  // --- Efeito para buscar OS "abertas" (ATUALIZADO) ---
+  // --- Efeito para buscar OS "abertas" (ATUALIZADO COM LÓGICA DE ADMIN) ---
   useEffect(() => {
-    // Só roda se o 'userData' estiver carregado
     if (userData) {
       setLoading(true);
+      const isAdmin = userData.role === 'admin';
       const osRef = collection(db, "ordensDeServico");
       
-      const q = query(
-        osRef, 
-        where("status", "==", "aberta"),
-        where("ownerId", "==", userData.id) // ATUALIZADO: Filtro de segurança
-      );
+      let q: Query;
+      
+      if (isAdmin) {
+        // ADMIN: Busca TODAS as OSs abertas
+        q = query(osRef, where("status", "==", "aberta"));
+      } else {
+        // OPERADOR: Busca SÓ as suas OSs abertas
+        q = query(
+          osRef, 
+          where("status", "==", "aberta"),
+          where("ownerId", "==", userData.id)
+        );
+      }
 
       const unsub = onSnapshot(q, (snapshot) => {
         const listaOS: OrdemDeServico[] = [];
@@ -135,7 +142,7 @@ export default function CaixaPage() {
     },
   });
 
-  // --- FUNÇÃO DE FINALIZAR PAGAMENTO (ATUALIZADO) ---
+  // --- FUNÇÃO DE FINALIZAR PAGAMENTO (Sem mudanças) ---
   async function onSubmit(values: z.infer<typeof pagamentoSchema>) {
     if (!selectedOS || !userData) {
       alert("Erro: OS ou Usuário não selecionado.");
@@ -154,7 +161,7 @@ export default function CaixaPage() {
       });
       console.log("OS finalizada com sucesso!");
 
-      // --- PASSO 2: REGISTRAR "ENTRADA" NO LIVRO CAIXA (ATUALIZADO) ---
+      // --- PASSO 2: REGISTRAR "ENTRADA" NO LIVRO CAIXA ---
       await addDoc(collection(db, "movimentacoes"), {
         data: dataFinalizacao,
         tipo: "entrada",
@@ -163,7 +170,7 @@ export default function CaixaPage() {
         custo: selectedOS.custoTotal || 0,
         formaPagamento: values.formaPagamento,
         referenciaId: selectedOS.id, 
-        ownerId: userData.id // ATUALIZADO: Salva o 'ownerId'
+        ownerId: selectedOS.ownerId || userData.id // Usa o ownerId da OS, ou o do caixa se falhar
       });
       console.log("Movimentação de entrada registrada!");
 
@@ -176,7 +183,7 @@ export default function CaixaPage() {
     }
   }
 
-  // --- Renderização (Se chegou aqui, está logado) ---
+  // --- Renderização ---
   return (
     <div>
       <div className="flex justify-between items-center mb-6">
@@ -214,7 +221,7 @@ export default function CaixaPage() {
                 </TableCell>
               </TableRow>
             )}
-            {/* Agora só lista as OSs do usuário logado */}
+            {/* Agora lista TODAS (admin) ou SÓ AS SUAS (operador) */}
             {!loading && osAbertas.map((os) => (
               <TableRow key={os.id}>
                 <TableCell>{os.numeroOS}</TableCell>
