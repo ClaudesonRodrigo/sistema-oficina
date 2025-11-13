@@ -8,19 +8,24 @@ import { auth } from '@/lib/firebase';
 import { LogOut } from 'lucide-react';
 import Link from 'next/link'; 
 
-// 1. ATUALIZAÇÃO: Adicionado o link "Relatórios"
+// --- 1. LÓGICA DO MENU ATUALIZADA ---
 const menuItens = [
   { nome: 'Dashboard', href: '/', adminOnly: false },
   { nome: 'Ordens de Serviço', href: '/os', adminOnly: false },
   { nome: 'Frente de Caixa', href: '/caixa', adminOnly: false }, 
-  { nome: 'Relatórios', href: '/relatorios', adminOnly: true }, // <-- NOVO LINK (SÓ ADMIN)
-  { nome: 'Lançar Despesas', href: '/despesas', adminOnly: true },
-  { nome: 'Entrada de Estoque', href: '/entrada-estoque', adminOnly: true },
-  { nome: 'Clientes', href: '/clientes', adminOnly: true },
-  { nome: 'Fornecedores', href: '/fornecedores', adminOnly: true },
-  { nome: 'Produtos (Peças)', href: '/produtos', adminOnly: true },
-  { nome: 'Gerenciar Usuários', href: '/usuarios', adminOnly: true },
+  { nome: 'Relatórios', href: '/relatorios', adminOnly: true }, // <-- Só Admin
+  { nome: 'Lançar Despesas', href: '/despesas', adminOnly: true }, // <-- Só Admin
+  { nome: 'Entrada de Estoque', href: '/entrada-estoque', adminOnly: true }, // <-- Só Admin
+  
+  // --- ESTA É A CORREÇÃO ---
+  { nome: 'Clientes', href: '/clientes', adminOnly: false }, // <-- MUDADO PARA false
+  { nome: 'Fornecedores', href: '/fornecedores', adminOnly: false }, // <-- MUDADO PARA false
+  // --- FIM DA CORREÇÃO ---
+
+  { nome: 'Produtos (Peças)', href: '/produtos', adminOnly: true }, // <-- Só Admin
+  { nome: 'Gerenciar Usuários', href: '/usuarios', adminOnly: true }, // <-- Só Admin
 ];
+// --- FIM DA LÓGICA DO MENU ---
 
 export default function MainLayout({ children }: { children: React.ReactNode }) {
   
@@ -38,6 +43,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
         <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
           
           {menuItens.map((item) => {
+            // Se o item NÃO for 'adminOnly', mostra para todos
             if (!item.adminOnly) {
               return (
                 <Link
@@ -50,6 +56,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
               );
             }
             
+            // Se o item FOR 'adminOnly' E o usuário for 'admin', mostra
             if (item.adminOnly && isAdmin) {
               return (
                 <Link
@@ -61,7 +68,8 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
                 </Link>
               );
             }
-            return null;
+            // Se for 'adminOnly' e o usuário não for admin, retorna null
+            return null; 
           })}
         </nav>
 
