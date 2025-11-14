@@ -1,11 +1,12 @@
 // src/app/(dashboard)/relatorios/page.tsx
 "use client";
 
-import { useState, useEffect } from "react"; // 1. useEffect será usado
+import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { collection, query, where, getDocs, Timestamp } from "firebase/firestore";
+// ATUALIZADO: Importar 'Query'
+import { collection, query, where, getDocs, Timestamp, onSnapshot, Query } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { format, startOfDay, endOfDay } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -41,6 +42,14 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+// ATUALIZADO: Importar componentes do Select
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 // --- Interface para Movimentações ---
 interface Movimentacao {
@@ -62,17 +71,26 @@ interface ResumoCaixa {
   lucroLiquido: number;
 }
 
-// --- Schema de Validação ZOD ---
+// --- ATUALIZADO: Adicionar interface UserData ---
+interface UserData {
+  id: string;
+  nome: string;
+  email: string;
+  role: "admin" | "operador";
+}
+
+// --- Schema de Validação ZOD (ATUALIZADO) ---
 const reportSchema = z.object({
   dataInicio: z.date(),
   dataFim: z.date(),
+  operadorId: z.string().default("todos"), // <-- CAMPO NOVO
 });
 
 export default function RelatoriosPage() {
   const [resumo, setResumo] = useState<ResumoCaixa | null>(null);
   const [movimentacoes, setMovimentacoes] = useState<Movimentacao[]>([]);
-  // Este 'loading' é para o formulário de busca
   const [loading, setLoading] = useState(false);
+  const [usuarios, setUsuarios] = useState<UserData[]>([]); // <-- STATE NOVO
 
   // --- 3. ADICIONA A PROTEÇÃO DE ROTA (O "GUARDIÃO") ---
   const { userData, loading: authLoading } = useAuth(); // Renomeia o loading do Auth
@@ -87,31 +105,56 @@ export default function RelatoriosPage() {
   }, [userData, authLoading, router]);
   // --- FIM DA PROTEÇÃO ---
 
-  // --- Configuração do Formulário de Data ---
+  // --- ATUALIZADO: Adicionar useEffect para buscar usuários ---
+  useEffect(() => {
+    // Este useEffect busca os usuários para o filtro
+    if (userData?.role === 'admin') {
+      const unsub = onSnapshot(collection(db, "usuarios"), (snapshot) => {
+        const lista: UserData[] = [];
+        snapshot.forEach((doc) => {
+          lista.push({ id: doc.id, ...doc.data() } as UserData);
+        });
+        setUsuarios(lista);
+      });
+      return () => unsub();
+    }
+  }, [userData]); // Roda quando o admin carrega
+
+  // --- Configuração do Formulário de Data (ATUALIZADO) ---
   const form = useForm<z.infer<typeof reportSchema>>({
     resolver: zodResolver(reportSchema),
     defaultValues: {
-      dataInicio: startOfDay(new Date()), // Hoje
-      dataFim: endOfDay(new Date()), // Hoje
+      dataInicio: startOfDay(new Date()),
+      dataFim: endOfDay(new Date()),
+      operadorId: "todos", // <-- VALOR PADRÃO NOVO
     },
   });
 
-  // --- Função de Busca por Período ---
+  // --- Função de Busca por Período (ATUALIZADA) ---
   async function onSubmit(values: z.infer<typeof reportSchema>) {
     setLoading(true);
     setResumo(null);
     setMovimentacoes([]);
 
-    const dataInicio = startOfDay(values.dataInicio);
-    const dataFim = endOfDay(values.dataFim);
+    // Pega os 3 valores do formulário
+    const { dataInicio, dataFim, operadorId } = values;
 
     try {
       const movRef = collection(db, "movimentacoes");
-      const q = query(
-        movRef,
-        where("data", ">=", dataInicio),
-        where("data", "<=", dataFim)
-      );
+
+      // 1. Começa com a query base (data)
+      let queryConstraints = [
+        where("data", ">=", startOfDay(dataInicio)),
+        where("data", "<=", endOfDay(dataFim))
+      ];
+  
+      // 2. Adiciona o filtro de operador SE não for "todos"
+      if (operadorId !== "todos") {
+        queryConstraints.push(where("ownerId", "==", operadorId));
+      }
+
+      // 3. Monta a query final
+      const q = query(movRef, ...queryConstraints);
 
       const querySnapshot = await getDocs(q);
 
@@ -144,8 +187,6 @@ export default function RelatoriosPage() {
       });
       setMovimentacoes(listaMovimentacoes);
     } catch (error) {
-      // O erro 'permission-denied' não deve mais acontecer
-      // se a lógica de proteção acima estiver correta
       console.error("Erro ao gerar relatório:", error);
       alert("Erro ao gerar relatório. Verifique o console.");
     } finally {
@@ -163,7 +204,6 @@ export default function RelatoriosPage() {
   }
 
   // --- 5. REDIRECIONA SE FOR OPERADOR ---
-  // (Redundante com o useEffect, mas é uma garantia extra)
   if (userData.role !== 'admin') {
     return (
        <div className="flex h-screen w-full items-center justify-center">
@@ -256,6 +296,33 @@ export default function RelatoriosPage() {
                         />
                       </PopoverContent>
                     </Popover>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              {/* --- ATUALIZADO: CAMPO DE FILTRO DE OPERADOR --- */}
+              <FormField
+                control={form.control}
+                name="operadorId"
+                render={({ field }) => (
+                  <FormItem className="flex flex-col">
+                    <FormLabel>Operador</FormLabel>
+                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                      <FormControl>
+                        <SelectTrigger className="w-60">
+                          <SelectValue placeholder="Filtrar por operador" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="todos">Todos os Operadores</SelectItem>
+                        {usuarios.map((user) => (
+                          <SelectItem key={user.id} value={user.id}>
+                            {user.nome}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                     <FormMessage />
                   </FormItem>
                 )}

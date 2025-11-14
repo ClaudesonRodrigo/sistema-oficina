@@ -7,8 +7,8 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 
 import { db } from "@/lib/firebase";
-// ATUALIZADO: Importar 'query' e 'where'
-import { collection, addDoc, onSnapshot, query, where } from "firebase/firestore"; 
+// ATUALIZADO: Importar 'query', 'where' e 'Query'
+import { collection, addDoc, onSnapshot, query, where, Query } from "firebase/firestore"; 
 
 // ATUALIZADO: Importar hooks de autenticação
 import { useAuth } from "@/context/AuthContext";
@@ -87,17 +87,22 @@ export default function FornecedoresPage() {
   // --- FIM DO GUARDIÃO ---
   
   // --- useEffect ATUALIZADO ---
-  // (Agora só busca os fornecedores que o usuário logado criou)
+  // (Admin vê todos, Operador vê apenas os seus)
   useEffect(() => {
-    // Só roda SE o userData estiver carregado
     if (userData) {
-      // 1. Cria a query segura
-      const q = query(
-        collection(db, "fornecedores"),
-        where("ownerId", "==", userData.id) // Filtra por 'ownerId'
-      );
+      const isAdmin = userData.role === 'admin';
+      const fornecedoresRef = collection(db, "fornecedores");
+
+      let q: Query;
+
+      if (isAdmin) {
+        // Admin vê TUDO
+        q = query(fornecedoresRef);
+      } else {
+        // Operador vê SÓ O DELE
+        q = query(fornecedoresRef, where("ownerId", "==", userData.id));
+      }
       
-      // 2. Ouve a query (não a coleção inteira)
       const unsub = onSnapshot(q, (querySnapshot) => {
         const listaDeFornecedores: Fornecedor[] = [];
         querySnapshot.forEach((doc) => {

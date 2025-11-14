@@ -7,8 +7,8 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 
 import { db } from "@/lib/firebase";
-// ATUALIZADO: Importar 'query' e 'where'
-import { collection, addDoc, onSnapshot, query, where } from "firebase/firestore"; 
+// ATUALIZADO: Importar 'query', 'where' e 'Query'
+import { collection, addDoc, onSnapshot, query, where, Query } from "firebase/firestore"; 
 
 import { useAuth } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
@@ -85,17 +85,22 @@ export default function ClientesPage() {
   
   
   // --- useEffect ATUALIZADO ---
-  // (Agora só busca os clientes que o usuário logado criou)
+  // (Admin vê todos, Operador vê apenas os seus)
   useEffect(() => {
-    // Só roda SE o userData estiver carregado
     if (userData) {
-      // 1. Cria a query segura
-      const q = query(
-        collection(db, "clientes"),
-        where("ownerId", "==", userData.id) // Filtra por 'ownerId'
-      );
+      const isAdmin = userData.role === 'admin';
+      const clientesRef = collection(db, "clientes");
       
-      // 2. Ouve a query (não a coleção inteira)
+      let q: Query; // Usa o tipo Query importado
+
+      if (isAdmin) {
+        // Admin vê TUDO
+        q = query(clientesRef);
+      } else {
+        // Operador vê SÓ O DELE
+        q = query(clientesRef, where("ownerId", "==", userData.id));
+      }
+      
       const unsub = onSnapshot(q, (querySnapshot) => {
         const listaDeClientes: Cliente[] = [];
         querySnapshot.forEach((doc) => {
@@ -109,7 +114,7 @@ export default function ClientesPage() {
 
       return () => unsub(); 
     }
-  }, [userData]); // 3. Roda de novo se o usuário (userData) mudar
+  }, [userData]); // Roda de novo se o usuário (userData) mudar
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
