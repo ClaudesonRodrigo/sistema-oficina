@@ -5,14 +5,12 @@ import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-// ATUALIZADO: Importar 'Query'
 import { collection, query, where, getDocs, Timestamp, onSnapshot, Query } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { format, startOfDay, endOfDay } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { Calendar as CalendarIcon } from "lucide-react";
 
-// --- 2. NOVAS IMPORTAÇÕES PARA AUTENTICAÇÃO E ROTEAMENTO ---
 import { useAuth } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
 
@@ -42,7 +40,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-// ATUALIZADO: Importar componentes do Select
 import {
   Select,
   SelectContent,
@@ -71,7 +68,7 @@ interface ResumoCaixa {
   lucroLiquido: number;
 }
 
-// --- ATUALIZADO: Adicionar interface UserData ---
+// --- Interface UserData ---
 interface UserData {
   id: string;
   nome: string;
@@ -79,35 +76,30 @@ interface UserData {
   role: "admin" | "operador";
 }
 
-// --- Schema de Validação ZOD (ATUALIZADO) ---
+// --- Schema de Validação ZOD ---
 const reportSchema = z.object({
   dataInicio: z.date(),
   dataFim: z.date(),
-  operadorId: z.string().default("todos"), // <-- CAMPO NOVO
+  operadorId: z.string().default("todos"), 
 });
 
 export default function RelatoriosPage() {
   const [resumo, setResumo] = useState<ResumoCaixa | null>(null);
   const [movimentacoes, setMovimentacoes] = useState<Movimentacao[]>([]);
   const [loading, setLoading] = useState(false);
-  const [usuarios, setUsuarios] = useState<UserData[]>([]); // <-- STATE NOVO
+  const [usuarios, setUsuarios] = useState<UserData[]>([]); 
 
-  // --- 3. ADICIONA A PROTEÇÃO DE ROTA (O "GUARDIÃO") ---
-  const { userData, loading: authLoading } = useAuth(); // Renomeia o loading do Auth
+  const { userData, loading: authLoading } = useAuth();
   const router = useRouter();
 
-  // Verifica as permissões ANTES de tentar buscar dados
   useEffect(() => {
     if (!authLoading && userData && userData.role !== 'admin') {
-      // Se não estiver carregando, tiver dados E o usuário NÃO for admin
-      router.push('/'); // Manda ele de volta pro Dashboard
+      router.push('/'); 
     }
   }, [userData, authLoading, router]);
-  // --- FIM DA PROTEÇÃO ---
 
-  // --- ATUALIZADO: Adicionar useEffect para buscar usuários ---
+  // --- useEffect para buscar usuários ---
   useEffect(() => {
-    // Este useEffect busca os usuários para o filtro
     if (userData?.role === 'admin') {
       const unsub = onSnapshot(collection(db, "usuarios"), (snapshot) => {
         const lista: UserData[] = [];
@@ -118,44 +110,40 @@ export default function RelatoriosPage() {
       });
       return () => unsub();
     }
-  }, [userData]); // Roda quando o admin carrega
+  }, [userData]); 
 
-  // --- Configuração do Formulário de Data (ATUALIZADO) ---
+  // --- Configuração do Formulário de Data ---
   const form = useForm<z.infer<typeof reportSchema>>({
     resolver: zodResolver(reportSchema),
     defaultValues: {
       dataInicio: startOfDay(new Date()),
       dataFim: endOfDay(new Date()),
-      operadorId: "todos", // <-- VALOR PADRÃO NOVO
+      operadorId: "todos",
     },
   });
 
-  // --- Função de Busca por Período (ATUALIZADA) ---
+  // --- Função de Busca por Período ---
   async function onSubmit(values: z.infer<typeof reportSchema>) {
     setLoading(true);
     setResumo(null);
     setMovimentacoes([]);
 
-    // Pega os 3 valores do formulário
     const { dataInicio, dataFim, operadorId } = values;
 
     try {
       const movRef = collection(db, "movimentacoes");
 
-      // 1. Começa com a query base (data)
       let queryConstraints = [
         where("data", ">=", startOfDay(dataInicio)),
         where("data", "<=", endOfDay(dataFim))
       ];
   
-      // 2. Adiciona o filtro de operador SE não for "todos"
       if (operadorId !== "todos") {
         queryConstraints.push(where("ownerId", "==", operadorId));
       }
 
-      // 3. Monta a query final
       const q = query(movRef, ...queryConstraints);
-
+      
       const querySnapshot = await getDocs(q);
 
       let faturamentoBruto = 0;
@@ -194,7 +182,6 @@ export default function RelatoriosPage() {
     }
   }
 
-  // --- 4. EXIBE "CARREGANDO..." ENQUANTO VERIFICA O LOGIN ---
   if (authLoading || !userData) {
     return (
       <div className="flex h-screen w-full items-center justify-center">
@@ -203,7 +190,6 @@ export default function RelatoriosPage() {
     );
   }
 
-  // --- 5. REDIRECIONA SE FOR OPERADOR ---
   if (userData.role !== 'admin') {
     return (
        <div className="flex h-screen w-full items-center justify-center">
@@ -212,22 +198,22 @@ export default function RelatoriosPage() {
     );
   }
 
-  // --- 6. SE CHEGOU AQUI, É ADMIN E PODE VER A PÁGINA ---
   return (
     <div>
-      <h1 className="text-4xl font-bold mb-6">Relatórios Financeiros</h1>
+      <h1 className="text-3xl md:text-4xl font-bold mb-6">Relatórios Financeiros</h1>
       
       {/* --- Formulário de Filtro de Data --- */}
       <Card className="mb-8">
         <CardContent className="pt-6">
           <Form {...form}>
+            {/* Este form já era responsivo */}
             <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col md:flex-row gap-4 items-end">
               
               <FormField
                 control={form.control}
                 name="dataInicio"
                 render={({ field }) => (
-                  <FormItem className="flex flex-col">
+                  <FormItem className="flex flex-col w-full md:w-60">
                     <FormLabel>Data Inicial</FormLabel>
                     <Popover>
                       <PopoverTrigger asChild>
@@ -235,7 +221,7 @@ export default function RelatoriosPage() {
                           <Button
                             variant={"outline"}
                             className={cn(
-                              "w-60 pl-3 text-left font-normal",
+                              "w-full md:w-60 pl-3 text-left font-normal", // w-full para mobile
                               !field.value && "text-muted-foreground"
                             )}
                           >
@@ -266,7 +252,7 @@ export default function RelatoriosPage() {
                 control={form.control}
                 name="dataFim"
                 render={({ field }) => (
-                  <FormItem className="flex flex-col">
+                  <FormItem className="flex flex-col w-full md:w-60">
                     <FormLabel>Data Final</FormLabel>
                     <Popover>
                       <PopoverTrigger asChild>
@@ -274,7 +260,7 @@ export default function RelatoriosPage() {
                           <Button
                             variant={"outline"}
                             className={cn(
-                              "w-60 pl-3 text-left font-normal",
+                              "w-full md:w-60 pl-3 text-left font-normal", // w-full para mobile
                               !field.value && "text-muted-foreground"
                             )}
                           >
@@ -301,16 +287,15 @@ export default function RelatoriosPage() {
                 )}
               />
 
-              {/* --- ATUALIZADO: CAMPO DE FILTRO DE OPERADOR --- */}
               <FormField
                 control={form.control}
                 name="operadorId"
                 render={({ field }) => (
-                  <FormItem className="flex flex-col">
+                  <FormItem className="flex flex-col w-full md:w-60">
                     <FormLabel>Operador</FormLabel>
                     <Select onValueChange={field.onChange} defaultValue={field.value}>
                       <FormControl>
-                        <SelectTrigger className="w-60">
+                        <SelectTrigger className="w-full md:w-60"> {/* w-full para mobile */}
                           <SelectValue placeholder="Filtrar por operador" />
                         </SelectTrigger>
                       </FormControl>
@@ -328,7 +313,7 @@ export default function RelatoriosPage() {
                 )}
               />
               
-              <Button type="submit" disabled={loading} className="h-10">
+              <Button type="submit" disabled={loading} className="h-10 w-full md:w-auto"> {/* w-full para mobile */}
                 {loading ? "Gerando..." : "Gerar Relatório"}
               </Button>
             </form>
@@ -342,8 +327,8 @@ export default function RelatoriosPage() {
       {resumo && (
         <div className="mb-8">
           <h2 className="text-3xl font-bold mb-4">Resumo do Período</h2>
-          <div className="grid gap-4 md:grid-cols-5">
-            {/* Cards de Resumo */}
+          {/* --- ATUALIZAÇÃO: Grid responsivo --- */}
+          <div className="grid gap-4 grid-cols-1 md:grid-cols-3 lg:grid-cols-5">
             <Card>
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm font-medium">Faturamento Bruto</CardTitle>
@@ -398,7 +383,7 @@ export default function RelatoriosPage() {
         </div>
       )}
 
-      {/* --- Tabela de Movimentações --- */}
+      {/* --- Tabela de Movimentações (Já rolável) --- */}
       {movimentacoes.length > 0 && (
         <div className="mt-8">
           <h2 className="text-2xl font-bold mb-4">Todas as Movimentações no Período</h2>
