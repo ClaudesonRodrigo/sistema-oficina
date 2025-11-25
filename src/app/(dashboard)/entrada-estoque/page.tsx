@@ -1,5 +1,4 @@
 // src/app/(dashboard)/entrada-estoque/page.tsx
-
 "use client";
 
 import { useState, useEffect } from "react";
@@ -14,19 +13,16 @@ import {
   doc,
   updateDoc,
   query,
-  where,
-  getDocs,
-  writeBatch
+  where
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { cn } from "@/lib/utils";
 import { Check, ChevronsUpDown, Trash2 } from "lucide-react";
 
-// --- 1. IMPORTAÇÕES DE AUTENTICAÇÃO E ROTEAMENTO ---
 import { useAuth } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
 
-// --- Importações dos componentes Shadcn ---
+// Componentes Shadcn
 import { Button } from "@/components/ui/button";
 import {
   Form,
@@ -68,8 +64,6 @@ import {
 import { Card, CardContent } from "@/components/ui/card";
 import { DialogFooter } from "@/components/ui/dialog"; 
 
-
-// --- Tipos de Dados (Interfaces) ---
 interface Fornecedor {
   id: string;
   nome: string;
@@ -82,19 +76,18 @@ interface Produto {
   tipo: "peca" | "servico";
 }
 
-// --- Schema de Validação ZOD ---
 const compraFormSchema = z.object({
   fornecedorId: z.string().min(1, "Selecione um fornecedor."),
   formaPagamento: z.enum(["pix", "dinheiro", "cartao_debito"]),
-  notaFiscal: z.string().optional(), // Número da NF-e de compra
+  notaFiscal: z.string().optional(),
   itens: z
     .array(
       z.object({
-        id: z.string(), // ID do produto
+        id: z.string(),
         nome: z.string(),
         qtde: z.coerce.number().min(1, "Qtde deve ser 1+"),
-        precoCustoUnitario: z.coerce.number().min(0, "Custo deve ser 0+"), // O novo custo
-        estoqueAntigo: z.number(), // O estoque antes da compra
+        precoCustoUnitario: z.coerce.number().min(0, "Custo deve ser 0+"),
+        estoqueAntigo: z.number(),
       })
     )
     .min(1, "Adicione pelo menos uma peça."),
@@ -105,7 +98,6 @@ export default function EntradaEstoquePage() {
   const [produtos, setProdutos] = useState<Produto[]>([]);
   const [isComboboxOpen, setIsComboboxOpen] = useState(false);
 
-  // --- 2. GUARDIÃO DE ROTA (O "PORTEIRO") ---
   const { userData, loading: authLoading } = useAuth();
   const router = useRouter();
 
@@ -117,7 +109,7 @@ export default function EntradaEstoquePage() {
     );
   }
 
-  // Esta página é SÓ para admin (conforme regra 'produtos' e 'movimentacoes')
+  // Acesso restrito a Admin (se quiser liberar para operador, remova este bloco if)
   if (!userData || userData.role !== 'admin') {
     router.push('/');
     return (
@@ -126,27 +118,20 @@ export default function EntradaEstoquePage() {
        </div>
     );
   }
-  // --- FIM DO GUARDIÃO ---
 
-
-  // --- Efeito para Buscar Fornecedores e Produtos (ATUALIZADO) ---
   useEffect(() => {
-    // O guardião garante que 'userData' existe e é admin
     if (userData) {
       
-      // 1. Buscar Fornecedores (APENAS os do admin logado)
-      const qForn = query(
-        collection(db, "fornecedores"),
-        where("ownerId", "==", userData.id) // Filtro de segurança
-      );
+      // --- CORREÇÃO: Busca TODOS os fornecedores (sem filtro de ownerId) ---
+      const qForn = query(collection(db, "fornecedores"));
+      
       const unsubForn = onSnapshot(qForn, (snapshot) => {
         setFornecedores(
           snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Fornecedor))
         );
       });
 
-      // 2. Buscar Produtos (catálogo é público para logados)
-      // (Não precisamos filtrar por ownerId aqui, pois o admin pode ver todos os produtos)
+      // Busca Produtos
       const qProd = query(collection(db, "produtos"), where("tipo", "==", "peca"));
       const unsubProd = onSnapshot(qProd, (snapshot) => {
         setProdutos(
@@ -159,9 +144,8 @@ export default function EntradaEstoquePage() {
         unsubProd();
       };
     }
-  }, [userData]); // Roda quando 'userData' for carregado
+  }, [userData]);
 
-  // --- Configuração do Formulário ---
   const form = useForm<z.infer<typeof compraFormSchema>>({
     resolver: zodResolver(compraFormSchema),
     defaultValues: {
@@ -177,7 +161,6 @@ export default function EntradaEstoquePage() {
     name: "itens",
   });
 
-  // Função para adicionar um produto na lista de compra
   const adicionarProduto = (produto: Produto) => {
     const itemIndex = fields.findIndex((field) => field.id === produto.id);
 
@@ -190,21 +173,19 @@ export default function EntradaEstoquePage() {
       id: produto.id,
       nome: produto.nome,
       qtde: 1,
-      precoCustoUnitario: produto.precoCusto, // Puxa o último custo cadastrado
+      precoCustoUnitario: produto.precoCusto,
       estoqueAntigo: produto.estoqueAtual,
     });
     setIsComboboxOpen(false);
   };
 
   const watchedItens = form.watch("itens");
-  // Calcula o Custo Total da Compra
   const custoTotalCompra = watchedItens.reduce((total, item) => {
     const quantidade = item.qtde || 0;
     const custo = item.precoCustoUnitario || 0;
     return total + (custo * quantidade);
   }, 0);
 
-  // --- FUNÇÃO DE SALVAR A COMPRA (ATUALIZADO) ---
   async function onSubmit(values: z.infer<typeof compraFormSchema>) {
     if (!userData) {
       alert("Erro: Usuário não autenticado.");
@@ -218,29 +199,28 @@ export default function EntradaEstoquePage() {
     }
 
     try {
-      // Usamos uma transação para garantir que tudo (estoque e despesa) funcione
       await runTransaction(db, async (transaction) => {
-        // 1. Atualiza o estoque e o custo de cada produto
+        // 1. Atualiza Estoque e Custo
         for (const item of values.itens) {
           const produtoRef = doc(db, "produtos", item.id);
           const novoEstoque = item.estoqueAntigo + item.qtde;
           
           transaction.update(produtoRef, { 
             estoqueAtual: novoEstoque,
-            precoCusto: item.precoCustoUnitario // Atualiza o custo da peça
+            precoCusto: item.precoCustoUnitario
           });
         }
 
-        // 2. Registra a "saída" (despesa) no Livro Caixa
+        // 2. Registra Saída no Caixa
         const movRef = doc(collection(db, "movimentacoes"));
         transaction.set(movRef, {
           data: new Date(),
-          tipo: "saida", // Compra é uma SAÍDA de caixa
+          tipo: "saida",
           descricao: `Compra NF #${values.notaFiscal || 'S/N'} - Forn: ${fornecedorSelecionado.nome}`,
           valor: custoTotalCompra,
           formaPagamento: values.formaPagamento,
-          referenciaId: values.notaFiscal, // Guarda a NF da compra
-          ownerId: userData.id // ATUALIZADO: Salva o 'ownerId'
+          referenciaId: values.notaFiscal,
+          ownerId: userData.id
         });
       });
 
@@ -253,7 +233,6 @@ export default function EntradaEstoquePage() {
     }
   }
 
-  // --- Renderização (Se chegou aqui, é ADMIN) ---
   return (
     <div>
       <h1 className="text-4xl font-bold mb-6">Registrar Entrada de Estoque (Compra)</h1>
@@ -262,7 +241,6 @@ export default function EntradaEstoquePage() {
         <CardContent className="pt-6">
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-              {/* --- SEÇÃO: FORNECEDOR E PAGAMENTO --- */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <FormField
                   control={form.control}
@@ -271,7 +249,7 @@ export default function EntradaEstoquePage() {
                     <FormItem>
                       <FormLabel>Fornecedor</FormLabel>
                       <FormControl>
-                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                        <Select onValueChange={field.onChange} value={field.value}>
                           <SelectTrigger>
                             <SelectValue placeholder="Selecione um fornecedor" />
                           </SelectTrigger>
@@ -295,7 +273,7 @@ export default function EntradaEstoquePage() {
                     <FormItem>
                       <FormLabel>Forma de Pagamento</FormLabel>
                       <FormControl>
-                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                        <Select onValueChange={field.onChange} value={field.value}>
                           <SelectTrigger>
                             <SelectValue placeholder="Selecione..." />
                           </SelectTrigger>
@@ -325,7 +303,6 @@ export default function EntradaEstoquePage() {
                 />
               </div>
 
-              {/* --- SEÇÃO: ADICIONAR PEÇAS --- */}
               <div>
                 <FormLabel>Adicionar Peças Compradas</FormLabel>
                 <Popover open={isComboboxOpen} onOpenChange={setIsComboboxOpen}>
@@ -361,7 +338,6 @@ export default function EntradaEstoquePage() {
                 <FormMessage>{form.formState.errors.itens?.message}</FormMessage>
               </div>
 
-              {/* --- SEÇÃO: ITENS DA COMPRA --- */}
               <div className="rounded-md border">
                 <Table>
                   <TableHeader>
@@ -414,7 +390,6 @@ export default function EntradaEstoquePage() {
                 </Table>
               </div>
 
-              {/* --- SEÇÃO: TOTAL --- */}
               <div className="flex justify-end">
                 <h2 className="text-2xl font-bold">
                   Custo Total da Compra: R$ {custoTotalCompra.toFixed(2)}

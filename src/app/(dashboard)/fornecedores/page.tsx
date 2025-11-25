@@ -12,8 +12,6 @@ import {
   addDoc, 
   onSnapshot, 
   query, 
-  where, 
-  Query, 
   doc, 
   updateDoc, 
   deleteDoc 
@@ -70,45 +68,13 @@ const formSchema = z.object({
 
 export default function FornecedoresPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
-  
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [fornecedorParaEditar, setFornecedorParaEditar] = useState<Fornecedor | null>(null);
-  const [isMigrating, setIsMigrating] = useState(false); // Estado para loading do botão
-
   const [fornecedores, setFornecedores] = useState<Fornecedor[]>([]);
 
   const { userData, loading: authLoading } = useAuth();
   const router = useRouter();
 
-  // --- FUNÇÃO NOVA: CHAMA O BACK-END (NETLIFY FUNCTION) ---
-  const corrigirFornecedoresAntigos = async () => {
-    if (!userData) return;
-    setIsMigrating(true);
-    
-    try {
-      // Chama a função que criamos no Passo 1
-      const response = await fetch('/.netlify/functions/migrarFornecedores', {
-        method: 'POST',
-        body: JSON.stringify({ targetUserId: userData.id }),
-      });
-
-      const result = await response.json();
-
-      if (response.ok) {
-        alert(result.message);
-      } else {
-        alert("Erro: " + (result.error || "Falha desconhecida"));
-      }
-    } catch (error) {
-      console.error("Erro ao chamar migração:", error);
-      alert("Erro de conexão ao tentar corrigir.");
-    } finally {
-      setIsMigrating(false);
-    }
-  };
-  // ---------------------------------------------------------
-
-  // --- GUARDIÃO DE ROTA ---
   if (authLoading) {
     return <div className="flex h-screen w-full items-center justify-center">Carregando...</div>;
   }
@@ -117,19 +83,10 @@ export default function FornecedoresPage() {
     return <div className="flex h-screen w-full items-center justify-center">Redirecionando...</div>;
   }
   
-  // --- BUSCA DE DADOS ---
   useEffect(() => {
     if (userData) {
-      const isAdmin = userData.role === 'admin';
-      const fornecedoresRef = collection(db, "fornecedores");
-
-      let q: Query;
-
-      if (isAdmin) {
-        q = query(fornecedoresRef);
-      } else {
-        q = query(fornecedoresRef, where("ownerId", "==", userData.id));
-      }
+      // --- CORREÇÃO: Busca TODOS os fornecedores para todos os usuários ---
+      const q = query(collection(db, "fornecedores"));
       
       const unsub = onSnapshot(q, (querySnapshot) => {
         const listaDeFornecedores: Fornecedor[] = [];
@@ -146,48 +103,26 @@ export default function FornecedoresPage() {
     }
   }, [userData]);
 
-  // --- FORMULÁRIOS ---
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
-    defaultValues: {
-      nome: "",
-      telefone: "",
-      cnpj: "",
-      vendedor: "",
-    },
+    defaultValues: { nome: "", telefone: "", cnpj: "", vendedor: "" },
   });
 
   const editForm = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
-    defaultValues: {
-      nome: "",
-      telefone: "",
-      cnpj: "",
-      vendedor: "",
-    },
+    defaultValues: { nome: "", telefone: "", cnpj: "", vendedor: "" },
   });
 
-  // --- FUNÇÃO CRIAR ---
   async function onSubmit(values: z.infer<typeof formSchema>) {
-    if (!userData) {
-      alert("Erro: Usuário não autenticado.");
-      return;
-    }
-
+    if (!userData) return;
     try {
-      const docParaSalvar = {
-        ...values,
-        ownerId: userData.id
-      };
-      await addDoc(collection(db, "fornecedores"), docParaSalvar);
+      // Mantemos o ownerId para saber quem criou, mas todos podem ver
+      await addDoc(collection(db, "fornecedores"), { ...values, ownerId: userData.id });
       form.reset();
       setIsModalOpen(false);
-    } catch (error) {
-      console.error("Erro ao salvar fornecedor: ", error);
-    }
+    } catch (error) { console.error(error); }
   }
 
-  // --- FUNÇÃO EDITAR ---
   const handleEditarFornecedor = (fornecedor: Fornecedor) => {
     setFornecedorParaEditar(fornecedor);
     editForm.reset({
@@ -201,33 +136,21 @@ export default function FornecedoresPage() {
 
   async function onEditSubmit(values: z.infer<typeof formSchema>) {
     if (!fornecedorParaEditar) return;
-
     try {
-      const docRef = doc(db, "fornecedores", fornecedorParaEditar.id);
-      await updateDoc(docRef, {
+      await updateDoc(doc(db, "fornecedores", fornecedorParaEditar.id), {
         nome: values.nome,
         telefone: values.telefone,
         cnpj: values.cnpj,
         vendedor: values.vendedor,
       });
-      console.log("Fornecedor atualizado!");
       setIsEditModalOpen(false);
       setFornecedorParaEditar(null);
-    } catch (error) {
-      console.error("Erro ao atualizar fornecedor: ", error);
-      alert("Erro ao atualizar fornecedor.");
-    }
+    } catch (error) { alert("Erro ao atualizar."); }
   }
 
-  // --- FUNÇÃO EXCLUIR ---
   const handleDeleteFornecedor = async (fornecedor: Fornecedor) => {
-    if (confirm(`Tem certeza que deseja excluir o fornecedor "${fornecedor.nome}"?`)) {
-      try {
-        await deleteDoc(doc(db, "fornecedores", fornecedor.id));
-      } catch (error) {
-        console.error("Erro ao excluir:", error);
-        alert("Erro ao excluir fornecedor.");
-      }
+    if (confirm(`Excluir "${fornecedor.nome}"?`)) {
+      await deleteDoc(doc(db, "fornecedores", fornecedor.id));
     }
   };
 
@@ -235,81 +158,24 @@ export default function FornecedoresPage() {
     <div>
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-4xl font-bold">Fornecedores</h1>
-        
-        <div className="flex gap-2">
-          <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
-            <DialogTrigger asChild>
-              <Button>Adicionar Novo Fornecedor</Button>
-            </DialogTrigger>
-            <DialogContent className="sm:max-w-[425px]">
-              <DialogHeader>
-                <DialogTitle>Adicionar Novo Fornecedor</DialogTitle>
-                <DialogDescription>
-                  Preencha as informações do novo fornecedor.
-                </DialogDescription>
-              </DialogHeader>
-
-              <Form {...form}>
-                <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-                  <FormField
-                    control={form.control}
-                    name="nome"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Nome da Empresa</FormLabel>
-                        <FormControl><Input placeholder="Ex: Auto Peças Sergipe" {...field} /></FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="vendedor"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Nome do Vendedor (Contato)</FormLabel>
-                        <FormControl><Input placeholder="Ex: Carlos" {...field} /></FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="telefone"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Telefone / WhatsApp</FormLabel>
-                        <FormControl><Input placeholder="Ex: 79 99999-8888" {...field} /></FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="cnpj"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>CNPJ</FormLabel>
-                        <FormControl><Input placeholder="Opcional" {...field} /></FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <DialogFooter>
-                    <Button type="submit" disabled={form.formState.isSubmitting}>
-                      {form.formState.isSubmitting ? "Salvando..." : "Salvar Fornecedor"}
-                    </Button>
-                  </DialogFooter>
-                </form>
-              </Form>
-            </DialogContent>
-          </Dialog>
-
-          {/* BOTÃO DE CORREÇÃO QUE CHAMA O BACK-END */}
-          <Button variant="secondary" onClick={corrigirFornecedoresAntigos} disabled={isMigrating}>
-            {isMigrating ? "Corrigindo..." : "🛠️ Corrigir Antigos"}
-          </Button>
-        </div>
+        <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
+          <DialogTrigger asChild><Button>Adicionar Novo Fornecedor</Button></DialogTrigger>
+          <DialogContent className="sm:max-w-[425px]">
+            <DialogHeader>
+              <DialogTitle>Adicionar Novo Fornecedor</DialogTitle>
+              <DialogDescription>Preencha as informações do novo fornecedor.</DialogDescription>
+            </DialogHeader>
+            <Form {...form}>
+              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+                <FormField control={form.control} name="nome" render={({ field }) => (<FormItem><FormLabel>Nome da Empresa</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)} />
+                <FormField control={form.control} name="vendedor" render={({ field }) => (<FormItem><FormLabel>Nome do Vendedor</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)} />
+                <FormField control={form.control} name="telefone" render={({ field }) => (<FormItem><FormLabel>Telefone</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)} />
+                <FormField control={form.control} name="cnpj" render={({ field }) => (<FormItem><FormLabel>CNPJ</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)} />
+                <DialogFooter><Button type="submit" disabled={form.formState.isSubmitting}>{form.formState.isSubmitting ? "Salvando..." : "Salvar"}</Button></DialogFooter>
+              </form>
+            </Form>
+          </DialogContent>
+        </Dialog>
       </div>
 
       <div className="rounded-md border">
@@ -331,12 +197,8 @@ export default function FornecedoresPage() {
                 <TableCell>{fornecedor.telefone}</TableCell>
                 <TableCell>{fornecedor.cnpj}</TableCell>
                 <TableCell className="flex gap-2">
-                  <Button variant="ghost" size="icon-sm" onClick={() => handleEditarFornecedor(fornecedor)}>
-                    <Edit className="h-4 w-4" />
-                  </Button>
-                  <Button variant="destructive" size="icon-sm" onClick={() => handleDeleteFornecedor(fornecedor)}>
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
+                  <Button variant="ghost" size="icon-sm" onClick={() => handleEditarFornecedor(fornecedor)}><Edit className="h-4 w-4" /></Button>
+                  <Button variant="destructive" size="icon-sm" onClick={() => handleDeleteFornecedor(fornecedor)}><Trash2 className="h-4 w-4" /></Button>
                 </TableCell>
               </TableRow>
             ))}
@@ -344,68 +206,20 @@ export default function FornecedoresPage() {
         </Table>
       </div>
 
-      {/* --- MODAL DE EDIÇÃO --- */}
       <Dialog open={isEditModalOpen} onOpenChange={setIsEditModalOpen}>
         <DialogContent className="sm:max-w-[425px]">
-          <DialogHeader>
-            <DialogTitle>Editar Fornecedor</DialogTitle>
-          </DialogHeader>
+          <DialogHeader><DialogTitle>Editar Fornecedor</DialogTitle></DialogHeader>
           <Form {...editForm}>
             <form onSubmit={editForm.handleSubmit(onEditSubmit)} className="space-y-4">
-              <FormField
-                  control={editForm.control}
-                  name="nome"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Nome da Empresa</FormLabel>
-                      <FormControl><Input {...field} /></FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                 <FormField
-                  control={editForm.control}
-                  name="vendedor"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Nome do Vendedor (Contato)</FormLabel>
-                      <FormControl><Input {...field} /></FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={editForm.control}
-                  name="telefone"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Telefone / WhatsApp</FormLabel>
-                      <FormControl><Input {...field} /></FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={editForm.control}
-                  name="cnpj"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>CNPJ</FormLabel>
-                      <FormControl><Input {...field} /></FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              <DialogFooter>
-                <Button type="submit" disabled={editForm.formState.isSubmitting}>
-                  {editForm.formState.isSubmitting ? "Salvando..." : "Salvar Alterações"}
-                </Button>
-              </DialogFooter>
+                <FormField control={editForm.control} name="nome" render={({ field }) => (<FormItem><FormLabel>Nome da Empresa</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
+                <FormField control={editForm.control} name="vendedor" render={({ field }) => (<FormItem><FormLabel>Nome do Vendedor</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
+                <FormField control={editForm.control} name="telefone" render={({ field }) => (<FormItem><FormLabel>Telefone</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
+                <FormField control={editForm.control} name="cnpj" render={({ field }) => (<FormItem><FormLabel>CNPJ</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
+                <DialogFooter><Button type="submit" disabled={editForm.formState.isSubmitting}>{editForm.formState.isSubmitting ? "Salvando..." : "Salvar"}</Button></DialogFooter>
             </form>
           </Form>
         </DialogContent>
       </Dialog>
-
     </div>
   );
 }
