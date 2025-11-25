@@ -7,7 +7,6 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 
 import { db } from "@/lib/firebase";
-// ATUALIZADO: Importações para Edição e Exclusão
 import { 
   collection, 
   addDoc, 
@@ -19,7 +18,6 @@ import {
   updateDoc, 
   deleteDoc 
 } from "firebase/firestore"; 
-// ATUALIZADO: Ícones
 import { Edit, Trash2 } from "lucide-react";
 
 import { useAuth } from "@/context/AuthContext";
@@ -73,30 +71,50 @@ const formSchema = z.object({
 export default function FornecedoresPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   
-  // --- NOVOS STATES PARA EDIÇÃO ---
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [fornecedorParaEditar, setFornecedorParaEditar] = useState<Fornecedor | null>(null);
+  const [isMigrating, setIsMigrating] = useState(false); // Estado para loading do botão
 
   const [fornecedores, setFornecedores] = useState<Fornecedor[]>([]);
 
   const { userData, loading: authLoading } = useAuth();
   const router = useRouter();
 
+  // --- FUNÇÃO NOVA: CHAMA O BACK-END (NETLIFY FUNCTION) ---
+  const corrigirFornecedoresAntigos = async () => {
+    if (!userData) return;
+    setIsMigrating(true);
+    
+    try {
+      // Chama a função que criamos no Passo 1
+      const response = await fetch('/.netlify/functions/migrarFornecedores', {
+        method: 'POST',
+        body: JSON.stringify({ targetUserId: userData.id }),
+      });
+
+      const result = await response.json();
+
+      if (response.ok) {
+        alert(result.message);
+      } else {
+        alert("Erro: " + (result.error || "Falha desconhecida"));
+      }
+    } catch (error) {
+      console.error("Erro ao chamar migração:", error);
+      alert("Erro de conexão ao tentar corrigir.");
+    } finally {
+      setIsMigrating(false);
+    }
+  };
+  // ---------------------------------------------------------
+
   // --- GUARDIÃO DE ROTA ---
   if (authLoading) {
-    return (
-      <div className="flex h-screen w-full items-center justify-center">
-        Carregando permissões...
-      </div>
-    );
+    return <div className="flex h-screen w-full items-center justify-center">Carregando...</div>;
   }
   if (!userData) { 
     router.push('/login');
-    return (
-       <div className="flex h-screen w-full items-center justify-center">
-         Redirecionando...
-       </div>
-    );
+    return <div className="flex h-screen w-full items-center justify-center">Redirecionando...</div>;
   }
   
   // --- BUSCA DE DADOS ---
@@ -161,9 +179,7 @@ export default function FornecedoresPage() {
         ...values,
         ownerId: userData.id
       };
-      
       await addDoc(collection(db, "fornecedores"), docParaSalvar);
-      
       form.reset();
       setIsModalOpen(false);
     } catch (error) {
@@ -194,7 +210,6 @@ export default function FornecedoresPage() {
         cnpj: values.cnpj,
         vendedor: values.vendedor,
       });
-
       console.log("Fornecedor atualizado!");
       setIsEditModalOpen(false);
       setFornecedorParaEditar(null);
@@ -211,7 +226,7 @@ export default function FornecedoresPage() {
         await deleteDoc(doc(db, "fornecedores", fornecedor.id));
       } catch (error) {
         console.error("Erro ao excluir:", error);
-        alert("Erro ao excluir fornecedor. Verifique se você tem permissão.");
+        alert("Erro ao excluir fornecedor.");
       }
     }
   };
@@ -221,90 +236,80 @@ export default function FornecedoresPage() {
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-4xl font-bold">Fornecedores</h1>
         
-        <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
-          <DialogTrigger asChild>
-            <Button>Adicionar Novo Fornecedor</Button>
-          </DialogTrigger>
-          <DialogContent className="sm:max-w-[425px]">
-            <DialogHeader>
-              <DialogTitle>Adicionar Novo Fornecedor</DialogTitle>
-              <DialogDescription>
-                Preencha as informações do novo fornecedor.
-              </DialogDescription>
-            </DialogHeader>
+        <div className="flex gap-2">
+          <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
+            <DialogTrigger asChild>
+              <Button>Adicionar Novo Fornecedor</Button>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-[425px]">
+              <DialogHeader>
+                <DialogTitle>Adicionar Novo Fornecedor</DialogTitle>
+                <DialogDescription>
+                  Preencha as informações do novo fornecedor.
+                </DialogDescription>
+              </DialogHeader>
 
-            <Form {...form}>
-              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-                
-                <FormField
-                  control={form.control}
-                  name="nome"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Nome da Empresa</FormLabel>
-                      <FormControl>
-                        <Input placeholder="Ex: Auto Peças Sergipe" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                
-                 <FormField
-                  control={form.control}
-                  name="vendedor"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Nome do Vendedor (Contato)</FormLabel>
-                      <FormControl>
-                        <Input placeholder="Ex: Carlos" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+              <Form {...form}>
+                <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+                  <FormField
+                    control={form.control}
+                    name="nome"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Nome da Empresa</FormLabel>
+                        <FormControl><Input placeholder="Ex: Auto Peças Sergipe" {...field} /></FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="vendedor"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Nome do Vendedor (Contato)</FormLabel>
+                        <FormControl><Input placeholder="Ex: Carlos" {...field} /></FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="telefone"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Telefone / WhatsApp</FormLabel>
+                        <FormControl><Input placeholder="Ex: 79 99999-8888" {...field} /></FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="cnpj"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>CNPJ</FormLabel>
+                        <FormControl><Input placeholder="Opcional" {...field} /></FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <DialogFooter>
+                    <Button type="submit" disabled={form.formState.isSubmitting}>
+                      {form.formState.isSubmitting ? "Salvando..." : "Salvar Fornecedor"}
+                    </Button>
+                  </DialogFooter>
+                </form>
+              </Form>
+            </DialogContent>
+          </Dialog>
 
-                <FormField
-                  control={form.control}
-                  name="telefone"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Telefone / WhatsApp</FormLabel>
-                      <FormControl>
-                        <Input placeholder="Ex: 79 99999-8888" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="cnpj"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>CNPJ</FormLabel>
-                      <FormControl>
-                        <Input placeholder="Opcional" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <DialogFooter>
-                  <Button 
-                    type="submit" 
-                    disabled={form.formState.isSubmitting}
-                  >
-                    {form.formState.isSubmitting ? "Salvando..." : "Salvar Fornecedor"}
-                  </Button>
-                </DialogFooter>
-
-              </form>
-            </Form>
-          </DialogContent>
-        </Dialog>
+          {/* BOTÃO DE CORREÇÃO QUE CHAMA O BACK-END */}
+          <Button variant="secondary" onClick={corrigirFornecedoresAntigos} disabled={isMigrating}>
+            {isMigrating ? "Corrigindo..." : "🛠️ Corrigir Antigos"}
+          </Button>
+        </div>
       </div>
 
       <div className="rounded-md border">
@@ -353,9 +358,7 @@ export default function FornecedoresPage() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Nome da Empresa</FormLabel>
-                      <FormControl>
-                        <Input {...field} />
-                      </FormControl>
+                      <FormControl><Input {...field} /></FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -366,9 +369,7 @@ export default function FornecedoresPage() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Nome do Vendedor (Contato)</FormLabel>
-                      <FormControl>
-                        <Input {...field} />
-                      </FormControl>
+                      <FormControl><Input {...field} /></FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -379,9 +380,7 @@ export default function FornecedoresPage() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Telefone / WhatsApp</FormLabel>
-                      <FormControl>
-                        <Input {...field} />
-                      </FormControl>
+                      <FormControl><Input {...field} /></FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -392,9 +391,7 @@ export default function FornecedoresPage() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>CNPJ</FormLabel>
-                      <FormControl>
-                        <Input {...field} />
-                      </FormControl>
+                      <FormControl><Input {...field} /></FormControl>
                       <FormMessage />
                     </FormItem>
                   )}

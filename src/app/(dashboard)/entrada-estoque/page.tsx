@@ -1,4 +1,5 @@
 // src/app/(dashboard)/entrada-estoque/page.tsx
+
 "use client";
 
 import { useState, useEffect } from "react";
@@ -13,7 +14,9 @@ import {
   doc,
   updateDoc,
   query,
-  where
+  where,
+  getDocs,
+  writeBatch
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { cn } from "@/lib/utils";
