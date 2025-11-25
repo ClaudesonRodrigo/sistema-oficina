@@ -14,11 +14,12 @@ import {
   orderBy,
   onSnapshot,
   Timestamp,
-  Query, 
 } from "firebase/firestore";
 import { useAuth } from "@/context/AuthContext";
 
 import AlertaEstoque from "@/components/AlertaEstoque";
+// --- NOVO: Importa os Gráficos ---
+import DashboardCharts from "@/components/DashboardCharts";
 
 // Componentes Shadcn
 import { Button } from "@/components/ui/button";
@@ -28,7 +29,6 @@ import {
   FormControl,
   FormField,
   FormItem,
-  FormLabel,
   FormMessage,
 } from "@/components/ui/form";
 import {
@@ -233,21 +233,19 @@ export default function HomePage() {
   };
 
   return (
-    // ATUALIZAÇÃO: Reduzido padding geral para telas menores
     <div>
       {/* --- Alerta de Estoque (SÓ ADMIN) --- */}
       {isAdmin && <AlertaEstoque />}
 
       {/* --- RESUMO DO CAIXA (SÓ ADMIN) --- */}
       {isAdmin && (
-        <div className="mb-8"> {/* ATUALIZAÇÃO: mb-8 (era mb-12) */}
+        <div className="mb-8">
           <h1 className="text-3xl md:text-4xl font-bold mb-6">Resumo do Dia</h1>
-          {/* --- ATUALIZAÇÃO: Grid responsivo --- */}
+          
           <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4">
-            
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Faturamento Bruto (Hoje)</CardTitle>
+                <CardTitle className="text-sm font-medium">Faturamento Bruto</CardTitle>
               </CardHeader>
               <CardContent>
                 {loadingCaixa ? (<p>Carregando...</p>) : (
@@ -260,7 +258,7 @@ export default function HomePage() {
             
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Custo Peças (Vendido)</CardTitle>
+                <CardTitle className="text-sm font-medium">Custo Peças</CardTitle>
               </CardHeader>
               <CardContent>
                 {loadingCaixa ? (<p>Carregando...</p>) : (
@@ -273,7 +271,7 @@ export default function HomePage() {
 
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Lucro Bruto (Hoje)</CardTitle>
+                <CardTitle className="text-sm font-medium">Lucro Bruto</CardTitle>
               </CardHeader>
               <CardContent>
                 {loadingCaixa ? (<p>Carregando...</p>) : (
@@ -286,7 +284,7 @@ export default function HomePage() {
 
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Despesas (Hoje)</CardTitle>
+                <CardTitle className="text-sm font-medium">Despesas</CardTitle>
               </CardHeader>
               <CardContent>
                 {loadingCaixa ? (<p>Carregando...</p>) : (
@@ -299,7 +297,7 @@ export default function HomePage() {
 
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Lucro Líquido (Hoje)</CardTitle>
+                <CardTitle className="text-sm font-medium">Lucro Líquido</CardTitle>
               </CardHeader>
               <CardContent>
                 {loadingCaixa ? (<p>Carregando...</p>) : (
@@ -310,6 +308,9 @@ export default function HomePage() {
               </CardContent>
             </Card>
           </div>
+
+          {/* --- NOVO: GRÁFICOS DO DASHBOARD --- */}
+          <DashboardCharts />
         </div>
       )}
 
@@ -318,7 +319,6 @@ export default function HomePage() {
         <div className="mt-8 border-t pt-8">
           <h1 className="text-3xl md:text-4xl font-bold mb-6">Consulta Rápida de Produto</h1>
           <Form {...formBuscaProduto}>
-            {/* --- ATUALIZAÇÃO: Formulário responsivo --- */}
             <form id="form-produto" onSubmit={formBuscaProduto.handleSubmit(onProdutoSubmit)} className="flex flex-col md:flex-row gap-4 mb-8">
               <FormField
                 control={formBuscaProduto.control}
@@ -329,7 +329,7 @@ export default function HomePage() {
                       <Input
                         placeholder="Digite o Código (SKU) do produto"
                         {...field}
-                        className="text-base md:text-lg p-4 md:p-6" // Padding ajustado
+                        className="text-base md:text-lg p-4 md:p-6"
                         autoComplete="off"
                       />
                     </FormControl>
@@ -356,7 +356,6 @@ export default function HomePage() {
               <CardHeader>
                 <CardTitle>{produtoResultado.nome} ({produtoResultado.codigoSku})</CardTitle>
               </CardHeader>
-              {/* --- ATUALIZAÇÃO: Grid responsivo --- */}
               <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <p className="font-medium">Estoque Atual:</p>
@@ -377,14 +376,13 @@ export default function HomePage() {
       )}
 
       {/* --- CONSULTA DE GARANTIA (PARA TODOS) --- */}
-      <div className="mt-8 md:mt-12 border-t pt-8"> {/* MT ajustado */}
+      <div className="mt-8 md:mt-12 border-t pt-8">
         <h1 className="text-3xl md:text-4xl font-bold mb-6">Consulta Rápida de Garantia</h1>
         <p className="text-base md:text-lg mb-4">
           Digite a placa do veículo para ver o histórico completo.
         </p>
 
         <Form {...formBuscaPlaca}>
-          {/* --- ATUALIZAÇÃO: Formulário responsivo --- */}
           <form id="form-placa" onSubmit={formBuscaPlaca.handleSubmit(onPlacaSubmit)} className="flex flex-col md:flex-row gap-4 mb-8">
             <FormField
               control={formBuscaPlaca.control}
@@ -395,7 +393,7 @@ export default function HomePage() {
                     <Input
                       placeholder="Digite a placa (ex: ABC-1234)"
                       {...field}
-                      className="text-base md:text-lg p-4 md:p-6" // Padding ajustado
+                      className="text-base md:text-lg p-4 md:p-6"
                       autoComplete="off"
                     />
                   </FormControl>
@@ -421,7 +419,6 @@ export default function HomePage() {
           </Card>
         )}
 
-        {/* A tabela já é rolável por padrão, o que é aceitável no mobile */}
         {!loadingPlaca && resultadosPlaca.length > 0 && (
           <Card className="mt-4">
             <CardHeader>
