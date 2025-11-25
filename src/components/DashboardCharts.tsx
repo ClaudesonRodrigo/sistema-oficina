@@ -17,7 +17,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { collection, query, where, getDocs, Timestamp } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { startOfMonth, subMonths, format, endOfMonth } from "date-fns";
+import { startOfMonth, subMonths, format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 
 // Cores para o gráfico de pizza
@@ -51,14 +51,15 @@ export default function DashboardCharts() {
 
         movSnap.forEach((doc) => {
           const data = doc.data();
-          const dataMov = data.data.toDate();
+          // Garante que a data é convertida corretamente do Timestamp do Firebase
+          const dataMov = data.data.toDate ? data.data.toDate() : new Date(data.data.seconds * 1000);
           const chave = format(dataMov, "yyyy-MM");
 
           if (dadosMensais[chave]) {
             if (data.tipo === "entrada") {
-              dadosMensais[chave].Vendas += data.valor;
+              dadosMensais[chave].Vendas += Number(data.valor);
             } else if (data.tipo === "saida") {
-              dadosMensais[chave].Despesas += data.valor;
+              dadosMensais[chave].Despesas += Number(data.valor);
             }
           }
         });
@@ -66,9 +67,7 @@ export default function DashboardCharts() {
         setFaturamentoData(Object.values(dadosMensais));
 
         // --- 2. DADOS PARA O GRÁFICO DE PIZZA (Peças x Serviços) ---
-        // Aqui precisamos olhar as OS finalizadas para saber o detalhe
         const osRef = collection(db, "ordensDeServico");
-        // Pegamos OS finalizadas dos últimos 30 dias para o gráfico de pizza ser mais "atual"
         const trintaDiasAtras = startOfMonth(subMonths(hoje, 1)); 
         const qOS = query(
           osRef, 
@@ -82,10 +81,9 @@ export default function DashboardCharts() {
 
         osSnap.forEach((doc) => {
           const os = doc.data();
-          // Itera sobre os itens da OS para somar
           if (os.itens) {
              os.itens.forEach((item: any) => {
-                const valorItem = (item.precoUnitario || 0) * (item.qtde || 0);
+                const valorItem = (Number(item.precoUnitario) || 0) * (Number(item.qtde) || 0);
                 if (item.tipo === "peca") {
                    totalPecas += valorItem;
                 } else {
@@ -95,10 +93,15 @@ export default function DashboardCharts() {
           }
         });
 
-        setLucroData([
-          { name: "Peças", value: totalPecas },
-          { name: "Serviços", value: totalServicos },
-        ]);
+        // Evita gráfico vazio se não tiver dados
+        if (totalPecas === 0 && totalServicos === 0) {
+           setLucroData([]);
+        } else {
+           setLucroData([
+             { name: "Peças", value: totalPecas },
+             { name: "Serviços", value: totalServicos },
+           ]);
+        }
 
       } catch (error) {
         console.error("Erro ao buscar dados dos gráficos:", error);
@@ -111,7 +114,6 @@ export default function DashboardCharts() {
   }, []);
 
   if (loading) {
-    // Um esqueleto simples de carregamento
     return (
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
         <div className="h-[350px] bg-gray-100 rounded-xl animate-pulse"></div>
@@ -158,8 +160,11 @@ export default function DashboardCharts() {
         </CardHeader>
         <CardContent>
           <div className="h-[300px] w-full flex justify-center items-center">
-            {lucroData.every(d => d.value === 0) ? (
-               <p className="text-gray-500">Sem dados suficientes neste período.</p>
+            {lucroData.length === 0 ? (
+               <div className="text-center text-gray-500">
+                 <p>Sem vendas finalizadas este mês.</p>
+                 <p className="text-sm">Finalize uma OS para ver o gráfico.</p>
+               </div>
             ) : (
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
@@ -168,7 +173,7 @@ export default function DashboardCharts() {
                     cx="50%"
                     cy="50%"
                     labelLine={false}
-                    label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                    label={({ name, percent }) => `${name} ${((percent || 0) * 100).toFixed(0)}%`}
                     outerRadius={100}
                     fill="#8884d8"
                     dataKey="value"
