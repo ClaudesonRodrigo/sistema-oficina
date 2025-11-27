@@ -17,7 +17,7 @@ import {
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { cn } from "@/lib/utils";
-import { Check, ChevronsUpDown, Trash2 } from "lucide-react";
+import { Check, ChevronsUpDown, Trash2, PlusCircle } from "lucide-react"; // Adicionei PlusCircle
 
 import { useAuth } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
@@ -64,6 +64,11 @@ import {
 import { Card, CardContent } from "@/components/ui/card";
 import { DialogFooter } from "@/components/ui/dialog"; 
 
+// --- IMPORTAÇÃO DAS ANIMAÇÕES ---
+import FadeIn from "@/components/animations/FadeIn";
+import SlideIn from "@/components/animations/SlideIn";
+import { AnimatePresence, motion } from "framer-motion"; // Importante para remover itens suavemente
+
 interface Fornecedor {
   id: string;
   nome: string;
@@ -103,35 +108,26 @@ export default function EntradaEstoquePage() {
 
   if (authLoading) {
     return (
-      <div className="flex h-screen w-full items-center justify-center">
+      <div className="flex h-screen w-full items-center justify-center animate-pulse">
         Carregando permissões...
       </div>
     );
   }
 
-  // Acesso restrito a Admin (se quiser liberar para operador, remova este bloco if)
   if (!userData || userData.role !== 'admin') {
     router.push('/');
-    return (
-       <div className="flex h-screen w-full items-center justify-center">
-         Acesso negado. Redirecionando...
-       </div>
-    );
+    return null;
   }
 
   useEffect(() => {
     if (userData) {
-      
-      // --- CORREÇÃO: Busca TODOS os fornecedores (sem filtro de ownerId) ---
       const qForn = query(collection(db, "fornecedores"));
-      
       const unsubForn = onSnapshot(qForn, (snapshot) => {
         setFornecedores(
           snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Fornecedor))
         );
       });
 
-      // Busca Produtos
       const qProd = query(collection(db, "produtos"), where("tipo", "==", "peca"));
       const unsubProd = onSnapshot(qProd, (snapshot) => {
         setProdutos(
@@ -156,7 +152,7 @@ export default function EntradaEstoquePage() {
     },
   });
 
-  const { fields, append, remove, update } = useFieldArray({
+  const { fields, append, remove } = useFieldArray({
     control: form.control,
     name: "itens",
   });
@@ -200,7 +196,6 @@ export default function EntradaEstoquePage() {
 
     try {
       await runTransaction(db, async (transaction) => {
-        // 1. Atualiza Estoque e Custo
         for (const item of values.itens) {
           const produtoRef = doc(db, "produtos", item.id);
           const novoEstoque = item.estoqueAntigo + item.qtde;
@@ -211,7 +206,6 @@ export default function EntradaEstoquePage() {
           });
         }
 
-        // 2. Registra Saída no Caixa
         const movRef = doc(collection(db, "movimentacoes"));
         transaction.set(movRef, {
           data: new Date(),
@@ -224,7 +218,7 @@ export default function EntradaEstoquePage() {
         });
       });
 
-      console.log("Compra registrada e estoque atualizado!");
+      alert("Compra registrada com sucesso!");
       form.reset();
       
     } catch (error: any) {
@@ -234,23 +228,26 @@ export default function EntradaEstoquePage() {
   }
 
   return (
-    <div>
-      <h1 className="text-4xl font-bold mb-6">Registrar Entrada de Estoque (Compra)</h1>
+    <FadeIn className="p-4 md:p-0"> {/* Animação de Entrada da Página */}
+      <div className="flex items-center gap-2 mb-6">
+         <PlusCircle className="w-8 h-8 text-primary" />
+         <h1 className="text-3xl md:text-4xl font-bold">Entrada de Estoque</h1>
+      </div>
       
-      <Card>
+      <Card className="shadow-lg border-t-4 border-t-primary">
         <CardContent className="pt-6">
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <FormField
                   control={form.control}
                   name="fornecedorId"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Fornecedor</FormLabel>
+                      <FormLabel className="font-semibold">Fornecedor</FormLabel>
                       <FormControl>
                         <Select onValueChange={field.onChange} value={field.value}>
-                          <SelectTrigger>
+                          <SelectTrigger className="h-11">
                             <SelectValue placeholder="Selecione um fornecedor" />
                           </SelectTrigger>
                           <SelectContent>
@@ -271,10 +268,10 @@ export default function EntradaEstoquePage() {
                   name="formaPagamento"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Forma de Pagamento</FormLabel>
+                      <FormLabel className="font-semibold">Pagamento</FormLabel>
                       <FormControl>
                         <Select onValueChange={field.onChange} value={field.value}>
-                          <SelectTrigger>
+                          <SelectTrigger className="h-11">
                             <SelectValue placeholder="Selecione..." />
                           </SelectTrigger>
                           <SelectContent>
@@ -293,9 +290,9 @@ export default function EntradaEstoquePage() {
                   name="notaFiscal"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Nº Nota Fiscal (Opcional)</FormLabel>
+                      <FormLabel className="font-semibold">Nº Nota Fiscal (Op.)</FormLabel>
                       <FormControl>
-                        <Input placeholder="Nº da NF-e" {...field} />
+                        <Input placeholder="Nº da NF-e" {...field} className="h-11" />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -303,18 +300,18 @@ export default function EntradaEstoquePage() {
                 />
               </div>
 
-              <div>
-                <FormLabel>Adicionar Peças Compradas</FormLabel>
+              <div className="bg-muted/30 p-4 rounded-lg border border-dashed border-muted-foreground/25">
+                <FormLabel className="font-semibold text-lg mb-2 block">Adicionar Peças</FormLabel>
                 <Popover open={isComboboxOpen} onOpenChange={setIsComboboxOpen}>
                   <PopoverTrigger asChild>
-                    <Button variant="outline" role="combobox" className="w-full justify-between mt-2">
-                      Selecione uma peça...
+                    <Button variant="outline" role="combobox" className="w-full justify-between h-12 text-base">
+                      🔍 Buscar e adicionar peça...
                       <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                     </Button>
                   </PopoverTrigger>
-                  <PopoverContent className="w-[--radix-popover-trigger-width] p-0">
+                  <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
                     <Command>
-                      <CommandInput placeholder="Buscar peça..." />
+                      <CommandInput placeholder="Digite o nome da peça..." />
                       <CommandList>
                         <CommandEmpty>Nenhuma peça encontrada.</CommandEmpty>
                         <CommandGroup>
@@ -323,11 +320,13 @@ export default function EntradaEstoquePage() {
                               key={produto.id}
                               value={produto.nome}
                               onSelect={() => { adicionarProduto(produto); }}
+                              className="cursor-pointer py-3"
                             >
                               <Check
                                 className={cn("mr-2 h-4 w-4", fields.some((item) => item.id === produto.id) ? "opacity-100" : "opacity-0")}
                               />
-                              {produto.nome} (Estoque atual: {produto.estoqueAtual})
+                              <span className="font-medium">{produto.nome}</span>
+                              <span className="ml-auto text-muted-foreground text-xs">Estoque: {produto.estoqueAtual}</span>
                             </CommandItem>
                           ))}
                         </CommandGroup>
@@ -338,66 +337,82 @@ export default function EntradaEstoquePage() {
                 <FormMessage>{form.formState.errors.itens?.message}</FormMessage>
               </div>
 
-              <div className="rounded-md border">
+              {/* TABELA ANIMADA */}
+              <div className="rounded-md border overflow-hidden">
                 <Table>
-                  <TableHeader>
+                  <TableHeader className="bg-muted/50">
                     <TableRow>
                       <TableHead>Peça</TableHead>
-                      <TableHead className="w-[120px]">Qtde Comprada</TableHead>
+                      <TableHead className="w-[120px]">Qtde</TableHead>
                       <TableHead className="w-[150px]">Custo Unit. (R$)</TableHead>
-                      <TableHead className="w-[120px]">Custo Total</TableHead>
-                      <TableHead className="w-[50px]">Ações</TableHead>
+                      <TableHead className="w-[120px]">Total</TableHead>
+                      <TableHead className="w-[50px]"></TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {fields.length === 0 && (
-                      <TableRow>
-                        <TableCell colSpan={5} className="text-center">Nenhuma peça adicionada.</TableCell>
-                      </TableRow>
-                    )}
-                    {fields.map((item, index) => (
-                      <TableRow key={item.id}>
-                        <TableCell>{item.nome}</TableCell>
-                        <TableCell>
-                          <FormField
-                            control={form.control}
-                            name={`itens.${index}.qtde`}
-                            render={({ field }) => (
-                              <Input type="number" className="h-8" {...field} />
-                            )}
-                          />
-                        </TableCell>
-                        <TableCell>
-                          <FormField
-                            control={form.control}
-                            name={`itens.${index}.precoCustoUnitario`}
-                            render={({ field }) => (
-                              <Input type="number" step="0.01" className="h-8" {...field} />
-                            )}
-                          />
-                        </TableCell>
-                        <TableCell>
-                          R$ {( (item.precoCustoUnitario || 0) * (item.qtde || 0) ).toFixed(2)}
-                        </TableCell>
-                        <TableCell>
-                          <Button type="button" variant="destructive" size="icon-sm" onClick={() => remove(index)}>
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    ))}
+                    {/* AnimatePresence permite animar a saída (remoção) */}
+                    <AnimatePresence mode="popLayout">
+                        {fields.length === 0 && (
+                        <TableRow>
+                            <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                                Nenhuma peça adicionada ainda.
+                            </TableCell>
+                        </TableRow>
+                        )}
+                        {fields.map((item, index) => (
+                        // Transformamos a TR em um componente motion
+                        <motion.tr
+                            key={item.id}
+                            layout // Anima o reordenamento quando um item sai
+                            initial={{ opacity: 0, x: -20 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            exit={{ opacity: 0, x: 20, backgroundColor: "#fee2e2" }} // Sai vermelho claro
+                            transition={{ duration: 0.3 }}
+                            className="border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted"
+                        >
+                            <TableCell className="font-medium">{item.nome}</TableCell>
+                            <TableCell>
+                            <FormField
+                                control={form.control}
+                                name={`itens.${index}.qtde`}
+                                render={({ field }) => (
+                                <Input type="number" className="h-9" {...field} />
+                                )}
+                            />
+                            </TableCell>
+                            <TableCell>
+                            <FormField
+                                control={form.control}
+                                name={`itens.${index}.precoCustoUnitario`}
+                                render={({ field }) => (
+                                <Input type="number" step="0.01" className="h-9" {...field} />
+                                )}
+                            />
+                            </TableCell>
+                            <TableCell className="font-bold text-green-600">
+                            R$ {( (item.precoCustoUnitario || 0) * (item.qtde || 0) ).toFixed(2)}
+                            </TableCell>
+                            <TableCell>
+                            <Button type="button" variant="ghost" size="icon-sm" onClick={() => remove(index)} className="text-destructive hover:text-destructive hover:bg-destructive/10">
+                                <Trash2 className="h-4 w-4" />
+                            </Button>
+                            </TableCell>
+                        </motion.tr>
+                        ))}
+                    </AnimatePresence>
                   </TableBody>
                 </Table>
               </div>
 
-              <div className="flex justify-end">
-                <h2 className="text-2xl font-bold">
-                  Custo Total da Compra: R$ {custoTotalCompra.toFixed(2)}
+              <div className="flex justify-end items-center bg-muted/20 p-4 rounded-lg">
+                <span className="text-muted-foreground mr-4">Total da Nota:</span>
+                <h2 className="text-3xl font-bold text-primary">
+                  R$ {custoTotalCompra.toFixed(2)}
                 </h2>
               </div>
 
               <DialogFooter className="pt-4">
-                <Button type="submit" disabled={form.formState.isSubmitting}>
+                <Button type="submit" disabled={form.formState.isSubmitting} size="lg" className="w-full md:w-auto">
                   {form.formState.isSubmitting ? "Salvando..." : "Registrar Compra"}
                 </Button>
               </DialogFooter>
@@ -405,6 +420,6 @@ export default function EntradaEstoquePage() {
           </Form>
         </CardContent>
       </Card>
-    </div>
+    </FadeIn>
   );
 }
