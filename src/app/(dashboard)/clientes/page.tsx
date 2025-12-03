@@ -7,7 +7,6 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 
 import { db } from "@/lib/firebase";
-// ATUALIZADO: Importações para Edição e Exclusão
 import { 
   collection, 
   addDoc, 
@@ -17,10 +16,10 @@ import {
   Query, 
   doc, 
   updateDoc, 
-  deleteDoc 
+  deleteDoc,
+  Timestamp // Adicionado para data de criação
 } from "firebase/firestore"; 
-// ATUALIZADO: Ícones
-import { Edit, Trash2 } from "lucide-react";
+import { Edit, Trash2, Search } from "lucide-react"; // Adicionado Search
 
 import { useAuth } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
@@ -60,6 +59,7 @@ interface Cliente {
   telefone?: string;
   cpfCnpj?: string;
   ownerId?: string;
+  createdAt?: Timestamp; // Campo para ordenação
 }
 
 const formSchema = z.object({
@@ -76,6 +76,7 @@ export default function ClientesPage() {
   const [clienteParaEditar, setClienteParaEditar] = useState<Cliente | null>(null);
   
   const [clientes, setClientes] = useState<Cliente[]>([]);
+  const [searchTerm, setSearchTerm] = useState(""); // Estado para a busca
   
   const { userData, loading: authLoading } = useAuth();
   const router = useRouter();
@@ -126,6 +127,18 @@ export default function ClientesPage() {
     }
   }, [userData]);
 
+  // --- LÓGICA DE FILTRO E ORDENAÇÃO ---
+  const clientesFiltrados = clientes
+    .filter((cliente) => 
+      cliente.nome.toLowerCase().includes(searchTerm.toLowerCase())
+    )
+    .sort((a, b) => {
+      // Ordena por data (createdAt) decrescente. Se não tiver data, vai para o final.
+      const dateA = a.createdAt?.seconds || 0;
+      const dateB = b.createdAt?.seconds || 0;
+      return dateB - dateA;
+    });
+
   // --- FORMULÁRIOS ---
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -155,7 +168,8 @@ export default function ClientesPage() {
     try {
       const docParaSalvar = {
         ...values,
-        ownerId: userData.id
+        ownerId: userData.id,
+        createdAt: Timestamp.now(), // Salva a data de criação
       };
       
       await addDoc(collection(db, "clientes"), docParaSalvar);
@@ -212,7 +226,7 @@ export default function ClientesPage() {
 
   return (
     <div>
-      <div className="flex justify-between items-center mb-6">
+      <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
         <h1 className="text-4xl font-bold">Clientes</h1>
         
         <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
@@ -279,6 +293,17 @@ export default function ClientesPage() {
         </Dialog>
       </div>
 
+      {/* --- BARRA DE PESQUISA --- */}
+      <div className="relative mb-6">
+        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-5 w-5" />
+        <Input 
+          placeholder="Pesquisar cliente por nome..." 
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          className="pl-10 text-lg py-6"
+        />
+      </div>
+
       <div className="rounded-md border">
         <Table>
           <TableHeader>
@@ -290,7 +315,14 @@ export default function ClientesPage() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {clientes.map((cliente) => (
+            {clientesFiltrados.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={4} className="text-center py-8 text-muted-foreground">
+                  Nenhum cliente encontrado.
+                </TableCell>
+              </TableRow>
+            )}
+            {clientesFiltrados.map((cliente) => (
               <TableRow key={cliente.id}>
                 <TableCell className="font-medium">{cliente.nome}</TableCell>
                 <TableCell>{cliente.telefone}</TableCell>

@@ -10,16 +10,17 @@ import { LogOut, Menu, X } from 'lucide-react';
 import Link from 'next/link'; 
 import { cn } from '@/lib/utils';
 
-// --- ATUALIZAÇÃO: Item "Veículos" adicionado ---
+// --- ATUALIZAÇÃO: Item "Orçamentos" adicionado ---
 const menuItens = [
   { nome: 'Dashboard', href: '/', adminOnly: false },
   { nome: 'Ordens de Serviço', href: '/os', adminOnly: false },
+  { nome: 'Orçamentos', href: '/orcamentos', adminOnly: false }, // <-- NOVO ITEM
   { nome: 'Frente de Caixa', href: '/caixa', adminOnly: false }, 
   { nome: 'Relatórios', href: '/relatorios', adminOnly: true },
   { nome: 'Lançar Despesas', href: '/despesas', adminOnly: true },
   { nome: 'Entrada de Estoque', href: '/entrada-estoque', adminOnly: true },
   { nome: 'Clientes', href: '/clientes', adminOnly: false },
-  { nome: 'Veículos', href: '/carros', adminOnly: false }, // <-- NOVO ITEM
+  { nome: 'Veículos', href: '/carros', adminOnly: false },
   { nome: 'Fornecedores', href: '/fornecedores', adminOnly: false },
   { nome: 'Produtos (Peças)', href: '/produtos', adminOnly: true },
   { nome: 'Gerenciar Usuários', href: '/usuarios', adminOnly: true },
