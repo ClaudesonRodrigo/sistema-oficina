@@ -5,7 +5,7 @@ import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-// Importar deleteDoc
+// Importar deleteDoc e Timestamp
 import { 
   collection, 
   addDoc, 
@@ -15,10 +15,10 @@ import {
   getDocs, 
   doc, 
   updateDoc, 
-  deleteDoc 
+  deleteDoc,
+  Timestamp // Adicionado
 } from "firebase/firestore"; 
 import { db } from "@/lib/firebase";
-// Importar Trash2
 import { Search, Edit, Trash2 } from "lucide-react"; 
 
 import { useAuth } from "@/context/AuthContext";
@@ -71,6 +71,7 @@ interface Produto {
   estoqueMinimo?: number;
   monitorarEstoque?: boolean;
   tipo: "peca" | "servico";
+  createdAt?: Timestamp; // Para ordenação
 }
 interface ItemOS {
   id: string;
@@ -100,7 +101,7 @@ const formSchema = z.object({
 // --- SCHEMA DE EDIÇÃO (ATUALIZADO COM PREÇO DE CUSTO) ---
 const editFormSchema = z.object({
   nome: z.string().min(3, { message: "O nome deve ter pelo menos 3 caracteres." }),
-  precoCusto: z.coerce.number().min(0, { message: "O custo deve ser positivo." }), // <-- NOVO
+  precoCusto: z.coerce.number().min(0, { message: "O custo deve ser positivo." }), 
   precoVenda: z.coerce.number().min(0, { message: "O preço deve ser positivo." }),
   estoqueMinimo: z.coerce.number().int().min(0),
   monitorarEstoque: z.string(),
@@ -110,6 +111,7 @@ const editFormSchema = z.object({
 export default function ProdutosPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [produtos, setProdutos] = useState<Produto[]>([]);
+  const [searchTerm, setSearchTerm] = useState(""); // Estado de busca por SKU
   
   // States dos Modais
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
@@ -158,6 +160,17 @@ export default function ProdutosPage() {
     return () => unsub();
   }, []);
 
+  // --- LÓGICA DE FILTRO E ORDENAÇÃO ---
+  const produtosFiltrados = produtos
+    .filter((p) => 
+      (p.codigoSku || "").toLowerCase().includes(searchTerm.toLowerCase())
+    )
+    .sort((a, b) => {
+      const dateA = a.createdAt?.seconds || 0;
+      const dateB = b.createdAt?.seconds || 0;
+      return dateB - dateA; // Recentes primeiro
+    });
+
   // Formulário de CRIAÇÃO
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -178,7 +191,7 @@ export default function ProdutosPage() {
     resolver: zodResolver(editFormSchema),
     defaultValues: {
       nome: "",
-      precoCusto: 0, // <-- NOVO
+      precoCusto: 0, 
       precoVenda: 0,
       estoqueMinimo: 3,
       monitorarEstoque: "true",
@@ -195,6 +208,7 @@ export default function ProdutosPage() {
         estoqueAtual: values.tipo === 'servico' ? 0 : values.estoqueAtual,
         estoqueMinimo: values.tipo === 'servico' ? 0 : values.estoqueMinimo,
         monitorarEstoque: values.monitorarEstoque === "true",
+        createdAt: Timestamp.now(), // Salva data de criação
       };
 
       const docRef = await addDoc(collection(db, "produtos"), dadosParaSalvar);
@@ -216,7 +230,7 @@ export default function ProdutosPage() {
       const docRef = doc(db, "produtos", produtoParaEditar.id);
       await updateDoc(docRef, {
         nome: values.nome,
-        precoCusto: values.precoCusto, // <-- ATUALIZA NO BANCO
+        precoCusto: values.precoCusto, 
         precoVenda: values.precoVenda,
         estoqueMinimo: values.estoqueMinimo,
         monitorarEstoque: values.monitorarEstoque === "true",
@@ -286,7 +300,7 @@ export default function ProdutosPage() {
     setProdutoParaEditar(produto);
     editForm.reset({
       nome: produto.nome,
-      precoCusto: produto.precoCusto || 0, // <-- CARREGA VALOR ATUAL
+      precoCusto: produto.precoCusto || 0, 
       precoVenda: produto.precoVenda,
       estoqueMinimo: produto.estoqueMinimo || 3,
       monitorarEstoque: produto.monitorarEstoque === false ? "false" : "true",
@@ -297,7 +311,7 @@ export default function ProdutosPage() {
 
   return (
     <div>
-      <div className="flex justify-between items-center mb-6">
+      <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
         <h1 className="text-4xl font-bold">Produtos e Peças</h1>
         
         <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
@@ -461,12 +475,24 @@ export default function ProdutosPage() {
         </Dialog>
       </div>
 
+      {/* --- BARRA DE PESQUISA (SKU) --- */}
+      <div className="relative mb-6">
+        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-5 w-5" />
+        <Input 
+          placeholder="Pesquisar produto pelo CÓDIGO (SKU)..." 
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          className="pl-10 text-lg py-6"
+        />
+      </div>
+
       {/* --- TABELA DE PRODUTOS --- */}
       <div className="rounded-md border">
         <Table>
           <TableHeader>
             <TableRow>
               <TableHead>Nome</TableHead>
+              <TableHead>SKU</TableHead>
               <TableHead>Tipo</TableHead>
               <TableHead>Estoque</TableHead>
               <TableHead>Mínimo</TableHead> 
@@ -476,9 +502,17 @@ export default function ProdutosPage() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {produtos.map((produto) => (
+            {produtosFiltrados.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                  Nenhum produto encontrado.
+                </TableCell>
+              </TableRow>
+            )}
+            {produtosFiltrados.map((produto) => (
               <TableRow key={produto.id}>
                 <TableCell className="font-medium">{produto.nome}</TableCell>
+                <TableCell>{produto.codigoSku || "-"}</TableCell>
                 <TableCell className="capitalize">{produto.tipo}</TableCell>
                 <TableCell>
                   <span className={
