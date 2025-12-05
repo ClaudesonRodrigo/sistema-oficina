@@ -394,7 +394,8 @@ export default function OrcamentosPage() {
     try {
       const docRef = await addDoc(collection(db, "carros"), {
         ...values,
-        placa: values.placa.toUpperCase(),
+        // PADRONIZAÇÃO DA PLACA NA OS TAMBÉM:
+        placa: values.placa.replace(/[^a-zA-Z0-9]/g, "").toUpperCase(),
         clienteId: clienteIdAtual,
         nomeCliente: clienteObj?.nome || "Desconhecido",
         ownerId: userData.id
@@ -405,7 +406,7 @@ export default function OrcamentosPage() {
       
       // Auto-seleciona
       setCarroSelecionadoId(docRef.id);
-      form.setValue("veiculoPlaca", values.placa.toUpperCase());
+      form.setValue("veiculoPlaca", values.placa.replace(/[^a-zA-Z0-9]/g, "").toUpperCase());
       form.setValue("veiculoModelo", values.modelo);
       form.clearErrors("veiculoPlaca");
 
@@ -511,6 +512,7 @@ export default function OrcamentosPage() {
                             <Plus className="h-4 w-4" />
                           </Button>
                         </div>
+                        {/* Exibe erro se tentar salvar sem carro */}
                         {form.formState.errors.veiculoPlaca && (
                           <p className="text-sm font-medium text-destructive mt-1">
                             Selecione um veículo obrigatório.
@@ -520,7 +522,9 @@ export default function OrcamentosPage() {
                   )}
                 </div>
 
-                {/* --- INPUTS MANUAIS REMOVIDOS AQUI --- */}
+                {/* --- SEÇÃO DADOS DO VEÍCULO (INPUTS REMOVIDOS) --- */}
+                {/* Os inputs manuais de placa e modelo foram removidos conforme solicitado.
+                    A lógica agora depende inteiramente da seleção ou cadastro rápido. */}
 
                 {/* --- SEÇÃO OBSERVAÇÕES E VALIDADE --- */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -574,14 +578,14 @@ export default function OrcamentosPage() {
                             {produtos.map((produto) => (
                               <CommandItem
                                 key={produto.id}
-                                value={`${produto.nome} ${produto.codigoSku || ''}`} // BUSCA PELO NOME E CÓDIGO
+                                value={`${produto.nome} ${produto.codigoSku || ''}`} // BUSCA POR NOME E CODIGO
                                 onSelect={() => { adicionarProduto(produto); }}
                               >
                                 <Check
                                   className={cn("mr-2 h-4 w-4", fields.some((item) => item.id === produto.id) ? "opacity-100" : "opacity-0")}
                                 />
                                 <div className="flex flex-col">
-                                  <span>{produto.nome} ({produto.tipo})</span>
+                                  <span>{produto.nome} {produto.tipo === "peca" && `(Estoque: ${produto.estoqueAtual})`}</span>
                                   {produto.codigoSku && (
                                     <span className="text-xs text-muted-foreground">Cód: {produto.codigoSku}</span>
                                   )}

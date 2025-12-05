@@ -82,7 +82,7 @@ interface Cliente {
 interface Produto {
   id: string;
   nome: string;
-  codigoSku?: string; // Adicionado para pesquisa
+  codigoSku?: string; 
   precoCusto: number; 
   precoVenda: number;
   estoqueAtual: number;
@@ -476,7 +476,8 @@ export default function OsPage() {
     try {
       const docRef = await addDoc(collection(db, "carros"), {
         ...values,
-        placa: values.placa.toUpperCase(),
+        // PADRONIZAÇÃO DA PLACA NA OS TAMBÉM:
+        placa: values.placa.replace(/[^a-zA-Z0-9]/g, "").toUpperCase(),
         clienteId: clienteIdAtual,
         nomeCliente: clienteObj?.nome || "Desconhecido",
         ownerId: userData.id
@@ -487,7 +488,7 @@ export default function OsPage() {
       
       // Auto-seleciona
       setCarroSelecionadoId(docRef.id);
-      form.setValue("veiculoPlaca", values.placa.toUpperCase());
+      form.setValue("veiculoPlaca", values.placa.replace(/[^a-zA-Z0-9]/g, "").toUpperCase());
       form.setValue("veiculoModelo", values.modelo);
       form.clearErrors("veiculoPlaca");
 
@@ -596,7 +597,7 @@ export default function OsPage() {
                   />
                 </div>
 
-                {/* --- SEÇÃO ADICIONAR ITENS --- */}
+                {/* --- SEÇÃO ADICIONAR ITENS (COM LUPA E CÓDIGO) --- */}
                 <div>
                   <FormLabel>Adicionar Peças e Serviços</FormLabel>
                   <Popover open={isComboboxOpen} onOpenChange={setIsComboboxOpen}>
@@ -729,7 +730,7 @@ export default function OsPage() {
                   name="nome"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Nome</FormLabel>
+                      <FormLabel>Nome do Cliente</FormLabel>
                       <FormControl><Input placeholder="Ex: João da Silva" {...field} /></FormControl>
                       <FormMessage />
                     </FormItem>
@@ -740,7 +741,7 @@ export default function OsPage() {
                   name="telefone"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Telefone</FormLabel>
+                      <FormLabel>Telefone / WhatsApp</FormLabel>
                       <FormControl><Input placeholder="(00) 00000-0000" {...field} /></FormControl>
                       <FormMessage />
                     </FormItem>
@@ -873,7 +874,7 @@ export default function OsPage() {
                   </Link>
                 </TableCell>
                 <TableCell className="font-medium">{os.nomeCliente}</TableCell>
-                <TableCell>{os.veiculoPlaca}</TableCell> {/* CORRIGIDO: usando veiculoPlaca */}
+                <TableCell>{os.veiculoPlaca}</TableCell>
                 <TableCell>
                   {os.dataAbertura && os.dataAbertura.seconds
                     ? new Date(os.dataAbertura.seconds * 1000).toLocaleDateString()

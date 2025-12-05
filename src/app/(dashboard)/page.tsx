@@ -18,7 +18,6 @@ import {
 import { useAuth } from "@/context/AuthContext";
 
 import AlertaEstoque from "@/components/AlertaEstoque";
-// --- NOVO: Importa os Gráficos ---
 import DashboardCharts from "@/components/DashboardCharts";
 
 // Componentes Shadcn
@@ -163,16 +162,21 @@ export default function HomePage() {
     mode: "onSubmit", 
   });
 
-  // --- Função de Busca por Placa ---
+  // --- Função de Busca por Placa (CORRIGIDA) ---
   async function onPlacaSubmit(values: z.infer<typeof placaSearchSchema>) {
     setLoadingPlaca(true);
     setSearchedPlaca(true);
     setResultadosPlaca([]);
     try {
       const osRef = collection(db, "ordensDeServico");
+      
+      // PADRONIZAÇÃO DA PLACA NA BUSCA
+      // Remove tudo que não é letra ou número e converte para maiúsculo
+      const placaFormatada = values.placa.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
+
       const q = query(
         osRef,
-        where("veiculoPlaca", "==", values.placa.toUpperCase()),
+        where("veiculoPlaca", "==", placaFormatada),
         orderBy("dataAbertura", "desc")
       );
       const querySnapshot = await getDocs(q);
@@ -309,7 +313,6 @@ export default function HomePage() {
             </Card>
           </div>
 
-          {/* --- NOVO: GRÁFICOS DO DASHBOARD --- */}
           <DashboardCharts />
         </div>
       )}
