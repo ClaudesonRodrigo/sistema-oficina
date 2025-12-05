@@ -115,7 +115,9 @@ export default function OrcamentoDetailPage() {
           
           {/* Cabeçalho do Documento */}
           <div className="text-center border-b pb-6 mb-6">
-            <h2 className="text-3xl font-bold text-gray-900">Rodrigo Skaps</h2>
+            <h2 className="text-3xl font-bold text-gray-900">Rodrigo Skap</h2>
+            <h2 className="text-3xl font-bold text-gray-900">Whatsapp 79-99837-1104</h2>
+            <p className="text-sm text-gray-500 mt-1">Avenida Euclides Figueiredo N 439, Aracaju</p>
             <p className="text-sm text-gray-500 mt-1">Soluções em Escapamentos e Serviços Automotivos</p>
             <div className="mt-4 inline-block px-4 py-1 bg-gray-100 rounded-full border">
                 <span className="text-lg font-semibold">ORÇAMENTO Nº {orcamento.numeroOrcamento}</span>

@@ -17,7 +17,7 @@ import {
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { cn } from "@/lib/utils";
-import { Check, ChevronsUpDown, Trash2, Plus } from "lucide-react";
+import { Check, ChevronsUpDown, Trash2, Plus, Search } from "lucide-react";
 import Link from "next/link";
 
 import { useAuth } from "@/context/AuthContext";
@@ -81,6 +81,7 @@ interface Cliente {
 interface Produto {
   id: string;
   nome: string;
+  codigoSku?: string; // Adicionado SKU
   precoCusto: number; 
   precoVenda: number;
   estoqueAtual: number;
@@ -99,6 +100,7 @@ interface Orcamento {
   dataCriacao: { seconds: number };
   nomeCliente: string;
   veiculoPlaca: string;
+  veiculoModelo: string;
   valorTotal: number;
   ownerId?: string; 
   status: "pendente" | "aprovado" | "recusado";
@@ -107,8 +109,8 @@ interface Orcamento {
 // --- Schema de Validação do Orçamento ---
 const orcamentoFormSchema = z.object({
   clienteId: z.string().min(1, "Selecione um cliente."),
-  // Mantemos placa e modelo no schema para salvar no banco, mas serão preenchidos via código
-  veiculoPlaca: z.string().min(3, "Selecione um veículo para preencher a placa."),
+  // Campos ocultos preenchidos automaticamente (obrigatórios no banco)
+  veiculoPlaca: z.string().min(3, "Selecione um veículo."), 
   veiculoModelo: z.string().optional(),
   servicosDescricao: z.string().optional(),
   validadeDias: z.coerce.number().int().min(1).default(15),
@@ -142,15 +144,15 @@ const vehicleFormSchema = z.object({
 
 export default function OrcamentosPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [isClientModalOpen, setIsClientModalOpen] = useState(false); // Modal de Cliente
-  const [isVehicleModalOpen, setIsVehicleModalOpen] = useState(false); // Modal de Veículo
+  const [isClientModalOpen, setIsClientModalOpen] = useState(false);
+  const [isVehicleModalOpen, setIsVehicleModalOpen] = useState(false);
 
   const [orcamentos, setOrcamentos] = useState<Orcamento[]>([]);
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [produtos, setProdutos] = useState<Produto[]>([]);
   
   const [veiculosCliente, setVeiculosCliente] = useState<Carro[]>([]);
-  const [carroSelecionadoId, setCarroSelecionadoId] = useState<string>(""); // Novo state para controlar o Select visualmente
+  const [carroSelecionadoId, setCarroSelecionadoId] = useState<string>(""); 
   
   const [isComboboxOpen, setIsComboboxOpen] = useState(false);
 
@@ -220,7 +222,7 @@ export default function OrcamentosPage() {
     }
   }, [userData]);
 
-  // --- Configuração dos Formulários ---
+  // --- Configuração do Formulário ---
   const form = useForm<z.infer<typeof orcamentoFormSchema>>({
     resolver: zodResolver(orcamentoFormSchema),
     defaultValues: {
@@ -256,7 +258,7 @@ export default function OrcamentosPage() {
       // Limpa dados anteriores
       form.setValue("veiculoPlaca", "");
       form.setValue("veiculoModelo", "");
-      setCarroSelecionadoId(""); // Reseta o select visual
+      setCarroSelecionadoId("");
 
       const q = query(
         collection(db, "carros"),
@@ -277,12 +279,12 @@ export default function OrcamentosPage() {
   }, [clienteIdSelecionado, form]);
 
   const handleCarroSelecionado = (carroId: string) => {
-    setCarroSelecionadoId(carroId); // Atualiza visual
+    setCarroSelecionadoId(carroId);
     const carro = veiculosCliente.find((c) => c.id === carroId);
     if (carro) {
-      // Preenche os campos ocultos para o formulário funcionar
       form.setValue("veiculoPlaca", carro.placa);
       form.setValue("veiculoModelo", carro.modelo);
+      form.clearErrors("veiculoPlaca");
     }
   };
 
@@ -387,7 +389,6 @@ export default function OrcamentosPage() {
       return;
     }
 
-    // Pega o nome do cliente atual para salvar no carro
     const clienteObj = clientes.find(c => c.id === clienteIdAtual);
 
     try {
@@ -402,13 +403,11 @@ export default function OrcamentosPage() {
       setIsVehicleModalOpen(false);
       vehicleForm.reset();
       
-      // Preenche automaticamente o formulário principal e o visual
+      // Auto-seleciona
+      setCarroSelecionadoId(docRef.id);
       form.setValue("veiculoPlaca", values.placa.toUpperCase());
       form.setValue("veiculoModelo", values.modelo);
-      
-      // Como o snapshot do firebase pode demorar milissegundos, 
-      // setamos o ID para que o select reconheça assim que a lista atualizar
-      setCarroSelecionadoId(docRef.id); 
+      form.clearErrors("veiculoPlaca");
 
       alert("Veículo cadastrado e selecionado!");
     } catch (error) {
@@ -512,7 +511,6 @@ export default function OrcamentosPage() {
                             <Plus className="h-4 w-4" />
                           </Button>
                         </div>
-                        {/* Exibe erro se tentar salvar sem carro */}
                         {form.formState.errors.veiculoPlaca && (
                           <p className="text-sm font-medium text-destructive mt-1">
                             Selecione um veículo obrigatório.
@@ -522,9 +520,7 @@ export default function OrcamentosPage() {
                   )}
                 </div>
 
-                {/* --- SEÇÃO DADOS DO VEÍCULO (INPUTS REMOVIDOS) --- */}
-                {/* Os inputs manuais de placa e modelo foram removidos conforme solicitado.
-                    A lógica agora depende inteiramente da seleção ou cadastro rápido. */}
+                {/* --- INPUTS MANUAIS REMOVIDOS AQUI --- */}
 
                 {/* --- SEÇÃO OBSERVAÇÕES E VALIDADE --- */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -559,9 +555,9 @@ export default function OrcamentosPage() {
                   />
                 </div>
 
-                {/* --- SEÇÃO ADICIONAR ITENS --- */}
+                {/* --- SEÇÃO ADICIONAR ITENS (COM LUPA E CÓDIGO) --- */}
                 <div>
-                  <FormLabel>Adicionar Peças e Serviços (Cotação)</FormLabel>
+                  <FormLabel>Adicionar Peças e Serviços</FormLabel>
                   <Popover open={isComboboxOpen} onOpenChange={setIsComboboxOpen}>
                     <PopoverTrigger asChild>
                       <Button variant="outline" role="combobox" className="w-full justify-between mt-2">
@@ -571,20 +567,25 @@ export default function OrcamentosPage() {
                     </PopoverTrigger>
                     <PopoverContent className="w-[--radix-popover-trigger-width] p-0">
                       <Command>
-                        <CommandInput placeholder="Buscar item..." />
+                        <CommandInput placeholder="Buscar item (Nome ou Código)..." />
                         <CommandList>
                           <CommandEmpty>Nenhum item encontrado.</CommandEmpty>
                           <CommandGroup>
                             {produtos.map((produto) => (
                               <CommandItem
                                 key={produto.id}
-                                value={produto.nome}
+                                value={`${produto.nome} ${produto.codigoSku || ''}`} // BUSCA PELO NOME E CÓDIGO
                                 onSelect={() => { adicionarProduto(produto); }}
                               >
                                 <Check
                                   className={cn("mr-2 h-4 w-4", fields.some((item) => item.id === produto.id) ? "opacity-100" : "opacity-0")}
                                 />
-                                {produto.nome} ({produto.tipo})
+                                <div className="flex flex-col">
+                                  <span>{produto.nome} ({produto.tipo})</span>
+                                  {produto.codigoSku && (
+                                    <span className="text-xs text-muted-foreground">Cód: {produto.codigoSku}</span>
+                                  )}
+                                </div>
                               </CommandItem>
                             ))}
                           </CommandGroup>
@@ -714,7 +715,7 @@ export default function OrcamentosPage() {
           </DialogContent>
         </Dialog>
 
-        {/* --- MODAL DE VEÍCULO RÁPIDO (NOVO) --- */}
+        {/* --- MODAL DE VEÍCULO RÁPIDO --- */}
         <Dialog open={isVehicleModalOpen} onOpenChange={setIsVehicleModalOpen}>
           <DialogContent className="sm:max-w-[425px]">
             <DialogHeader>

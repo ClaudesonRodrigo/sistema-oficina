@@ -14,7 +14,7 @@ import {
   Query,
   deleteDoc,
   doc,
-  addDoc, // Importado para adicionar clientes/veículos
+  addDoc, 
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { cn } from "@/lib/utils";
@@ -82,6 +82,7 @@ interface Cliente {
 interface Produto {
   id: string;
   nome: string;
+  codigoSku?: string; // Adicionado para pesquisa
   precoCusto: number; 
   precoVenda: number;
   estoqueAtual: number;
@@ -363,7 +364,6 @@ export default function OsPage() {
       return;
     }
 
-    // Verifica duplicidade de OS aberta
     try {
       let q: Query;
       const osRef = collection(db, "ordensDeServico");
@@ -563,8 +563,6 @@ export default function OsPage() {
                   )}
                 </div>
 
-                {/* --- SEÇÃO INPUTS MANUAIS REMOVIDA AQUI --- */}
-
                 {/* --- LINHA 2: OBSERVAÇÕES E GARANTIA --- */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <FormField
@@ -610,22 +608,25 @@ export default function OsPage() {
                     </PopoverTrigger>
                     <PopoverContent className="w-[--radix-popover-trigger-width] p-0">
                       <Command>
-                        <CommandInput placeholder="Buscar item..." />
+                        <CommandInput placeholder="Buscar item (Nome ou Código)..." />
                         <CommandList>
                           <CommandEmpty>Nenhum item encontrado.</CommandEmpty>
                           <CommandGroup>
                             {produtos.map((produto) => (
                               <CommandItem
                                 key={produto.id}
-                                value={produto.nome}
+                                value={`${produto.nome} ${produto.codigoSku || ''}`} // BUSCA POR NOME E CODIGO
                                 onSelect={() => { adicionarProduto(produto); }}
                               >
                                 <Check
                                   className={cn("mr-2 h-4 w-4", fields.some((item) => item.id === produto.id) ? "opacity-100" : "opacity-0")}
                                 />
-                                {produto.nome} ({produto.tipo})
-                                {produto.tipo === "peca" &&
-                                  ` - Estoque: ${produto.estoqueAtual}`}
+                                <div className="flex flex-col">
+                                  <span>{produto.nome} {produto.tipo === "peca" && `(Estoque: ${produto.estoqueAtual})`}</span>
+                                  {produto.codigoSku && (
+                                    <span className="text-xs text-muted-foreground">Cód: {produto.codigoSku}</span>
+                                  )}
+                                </div>
                               </CommandItem>
                             ))}
                           </CommandGroup>
@@ -872,7 +873,7 @@ export default function OsPage() {
                   </Link>
                 </TableCell>
                 <TableCell className="font-medium">{os.nomeCliente}</TableCell>
-                <TableCell>{os.veiculoPlaca}</TableCell>
+                <TableCell>{os.veiculoPlaca}</TableCell> {/* CORRIGIDO: usando veiculoPlaca */}
                 <TableCell>
                   {os.dataAbertura && os.dataAbertura.seconds
                     ? new Date(os.dataAbertura.seconds * 1000).toLocaleDateString()
