@@ -16,7 +16,7 @@ import {
   doc,
   addDoc, 
 } from "firebase/firestore";
-// IMPORTANTE: Adicionado 'auth' para gerar o token de segurança
+// IMPORTANTE: 'auth' é necessário para o Token de Segurança na API Vercel
 import { db, auth } from "@/lib/firebase"; 
 import { cn } from "@/lib/utils";
 import { Check, ChevronsUpDown, Trash2, Search, Plus } from "lucide-react";
@@ -83,7 +83,7 @@ interface Cliente {
 interface Produto {
   id: string;
   nome: string;
-  codigoSku?: string; // Adicionado para pesquisa
+  codigoSku?: string;
   precoCusto: number; 
   precoVenda: number;
   estoqueAtual: number;
@@ -357,7 +357,7 @@ export default function OsPage() {
   }, 0);
 
 
-  // --- FUNÇÃO ON SUBMIT (ATUALIZADA PARA VERCEL) ---
+  // --- FUNÇÃO ON SUBMIT (CORRIGIDA PARA VERCEL) ---
   async function onSubmit(values: z.infer<typeof osFormSchema>) {
     
     if (!userData) {
@@ -426,15 +426,15 @@ export default function OsPage() {
     };
 
     try {
-      // CORREÇÃO: Pegar Token de Autenticação para segurança
+      // --- CORREÇÃO: Pegar Token para API Vercel ---
       const token = await auth.currentUser?.getIdToken();
 
-      // CORREÇÃO: Chamar API Vercel (/api/os/create) em vez de Netlify
+      // Chamada para a nova rota da Vercel
       const response = await fetch('/api/os/create', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}` // Header de Segurança
+          'Authorization': `Bearer ${token}` // Autenticação segura
         },
         body: JSON.stringify({
           novaOS: novaOSParaEnvio, 
@@ -448,11 +448,11 @@ export default function OsPage() {
         throw new Error(result.error || "Erro desconhecido ao salvar OS");
       }
 
-      console.log("OS salva pela Vercel API!", result.message);
+      console.log("OS salva com sucesso na Vercel!", result.message);
       form.reset();
-      setCarroSelecionadoId(""); 
+      setCarroSelecionadoId(""); // Reset visual select
       setIsModalOpen(false);
-      alert("Ordem de Serviço criada com sucesso!");
+      alert("Ordem de Serviço criada com sucesso!"); // Feedback visual
 
     } catch (error: any) {
       console.error("Erro ao criar OS: ", error);
@@ -472,6 +472,7 @@ export default function OsPage() {
     } catch (error) { console.error(error); alert("Erro ao cadastrar."); }
   }
 
+  // --- SUBMIT VEÍCULO RÁPIDO ---
   async function onVehicleSubmit(values: z.infer<typeof vehicleFormSchema>) {
     if (!userData) return;
     const clienteIdAtual = form.getValues("clienteId");
@@ -491,6 +492,7 @@ export default function OsPage() {
       setIsVehicleModalOpen(false);
       vehicleForm.reset();
       
+      // Auto-seleciona
       setCarroSelecionadoId(docRef.id);
       form.setValue("veiculoPlaca", values.placa.toUpperCase());
       form.setValue("veiculoModelo", values.modelo);
@@ -620,7 +622,7 @@ export default function OsPage() {
                             {produtos.map((produto) => (
                               <CommandItem
                                 key={produto.id}
-                                value={`${produto.nome} ${produto.codigoSku || ''}`} // BUSCA POR NOME E CODIGO
+                                value={`${produto.nome} ${produto.codigoSku || ''}`}
                                 onSelect={() => { adicionarProduto(produto); }}
                               >
                                 <Check
@@ -834,7 +836,6 @@ export default function OsPage() {
 
       </div>
 
-      {/* --- BARRA DE PESQUISA --- */}
       <div className="relative mb-6">
         <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-5 w-5" />
         <Input 
@@ -845,7 +846,6 @@ export default function OsPage() {
         />
       </div>
 
-      {/* --- TABELA DE LISTAGEM DE OS --- */}
       <div className="rounded-md border">
         <Table>
           <TableHeader>
@@ -878,7 +878,7 @@ export default function OsPage() {
                   </Link>
                 </TableCell>
                 <TableCell className="font-medium">{os.nomeCliente}</TableCell>
-                <TableCell>{os.veiculoPlaca}</TableCell>
+                <TableCell>{os.veiculoPlaca}</TableCell> {/* CORRIGIDO: usando veiculoPlaca */}
                 <TableCell>
                   {os.dataAbertura && os.dataAbertura.seconds
                     ? new Date(os.dataAbertura.seconds * 1000).toLocaleDateString()
