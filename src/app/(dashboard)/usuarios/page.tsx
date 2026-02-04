@@ -8,17 +8,14 @@ import { z } from "zod";
 import {
   collection,
   onSnapshot,
-  doc,
-  setDoc,
   deleteDoc,
+  doc,
 } from "firebase/firestore";
-// REMOVEMOS createUserWithEmailAndPassword e auth
-import { db } from "@/lib/firebase";
-
+import { db, auth } from "@/lib/firebase"; // Importando auth para pegar o token
 import { useAuth } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
 
-// Componentes Shadcn
+// Componentes Shadcn UI
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -54,6 +51,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
+// --- Tipos e Schema ---
 interface UserData {
   id: string;
   nome: string;
@@ -71,34 +69,22 @@ const formSchema = z.object({
 export default function UsuariosPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [usuarios, setUsuarios] = useState<UserData[]>([]);
-
-  // --- GUARDIÃO DE ROTA ---
+  
+  // Hook de autenticação
   const { userData, loading: authLoading } = useAuth();
   const router = useRouter();
 
-  if (authLoading) {
-    return (
-      <div className="flex h-screen w-full items-center justify-center">
-        Carregando permissões...
-      </div>
-    );
+  // --- 1. Guardião de Rota ---
+  // Se não for admin, nem carrega os dados
+  if (!authLoading && (!userData || userData.role !== 'admin')) {
+    // Opcional: router.push('/') para expulsar
   }
 
-  if (!userData || userData.role !== 'admin') {
-    router.push('/');
-    return (
-       <div className="flex h-screen w-full items-center justify-center">
-         Acesso negado. Redirecionando...
-       </div>
-    );
-  }
-  // --- FIM DO GUARDIÃO ---
-
-
-  // Efeito para carregar os usuários
+  // --- 2. Carregar Usuários (Listener em Tempo Real) ---
   useEffect(() => {
-    // Este onSnapshot só roda se o usuário for admin (devido ao guardião)
-    // E agora vai funcionar, pois o admin (após o Passo 1) tem o token correto
+    // Só ativa o listener se for admin
+    if (!userData || userData.role !== 'admin') return;
+
     const unsub = onSnapshot(collection(db, "usuarios"), (snapshot) => {
       const lista: UserData[] = [];
       snapshot.forEach((doc) => {
@@ -106,11 +92,11 @@ export default function UsuariosPage() {
       });
       setUsuarios(lista);
     }, (error) => {
-       // O erro de permissão não deve mais acontecer aqui
-       console.error("Erro no listener de usuários (verifique as regras):", error);
+      console.error("Erro ao buscar usuários:", error);
     });
+
     return () => unsub();
-  }, []); // Dependência vazia
+  }, [userData]);
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -122,14 +108,23 @@ export default function UsuariosPage() {
     },
   });
 
-  // --- FUNÇÃO onSubmit ATUALIZADA ---
+  // --- 3. Função de Criar (Atualizada para Vercel API) ---
   async function onSubmit(values: z.infer<typeof formSchema>) {
     try {
-      // 1. Chama a Netlify Function
-      const response = await fetch('/.netlify/functions/criarUsuarioComRole', {
+      // Pegar o token do usuário atual para provar que somos Admin na API
+      const token = await auth.currentUser?.getIdToken();
+
+      if (!token) {
+        alert("Erro de autenticação. Tente fazer login novamente.");
+        return;
+      }
+
+      // Chamada para a nova API Route do Next.js
+      const response = await fetch('/api/admin/create-user', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}` // O segredo está aqui!
         },
         body: JSON.stringify(values),
       });
@@ -137,21 +132,28 @@ export default function UsuariosPage() {
       const result = await response.json();
 
       if (!response.ok) {
-        throw new Error(result.error || "Erro desconhecido ao criar usuário");
+        throw new Error(result.error || "Erro ao criar usuário");
       }
 
-      console.log("Usuário criado com sucesso pela Netlify Function:", result.uid);
+      console.log("Sucesso:", result);
       form.reset();
       setIsModalOpen(false);
+      alert(`Usuário ${values.nome} criado com sucesso!`);
       
     } catch (error: any) {
-      console.error("Erro ao chamar Netlify Function:", error);
-      if (error.message.includes('email-already-exists')) {
-        alert("Erro: Este e-mail já está em uso.");
-      } else {
-        alert("Erro ao criar usuário: " + error.message);
-      }
+      console.error("Erro:", error);
+      alert(error.message);
     }
+  }
+
+  // Se estiver carregando ou sem permissão, mostra aviso
+  if (authLoading) return <div className="p-8">Carregando permissões...</div>;
+  if (userData?.role !== 'admin') {
+    return (
+      <div className="flex h-screen w-full items-center justify-center text-red-500 font-bold">
+        Acesso Negado. Apenas administradores podem ver esta página.
+      </div>
+    );
   }
 
   return (
@@ -166,7 +168,7 @@ export default function UsuariosPage() {
             <DialogHeader>
               <DialogTitle>Adicionar Novo Usuário</DialogTitle>
               <DialogDescription>
-                Crie um novo login (admin ou operador) para o sistema.
+                Crie um novo login para o sistema (Admin ou Operador).
               </DialogDescription>
             </DialogHeader>
 
@@ -190,9 +192,9 @@ export default function UsuariosPage() {
                   name="email"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>E-mail (para login)</FormLabel>
+                      <FormLabel>E-mail (Login)</FormLabel>
                       <FormControl>
-                        <Input type="email" placeholder="email@login.com" {...field} />
+                        <Input type="email" placeholder="email@oficina.com" {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -203,7 +205,7 @@ export default function UsuariosPage() {
                   name="password"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Senha (mínimo 6 caracteres)</FormLabel>
+                      <FormLabel>Senha</FormLabel>
                       <FormControl>
                         <Input type="password" placeholder="******" {...field} />
                       </FormControl>
@@ -220,11 +222,11 @@ export default function UsuariosPage() {
                       <Select onValueChange={field.onChange} defaultValue={field.value}>
                         <FormControl>
                           <SelectTrigger>
-                            <SelectValue placeholder="Selecione um nível" />
+                            <SelectValue placeholder="Selecione..." />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          <SelectItem value="operador">Operador (Caixa)</SelectItem>
+                          <SelectItem value="operador">Operador (Caixa/Mecânico)</SelectItem>
                           <SelectItem value="admin">Administrador (Dono)</SelectItem>
                         </SelectContent>
                       </Select>
@@ -243,37 +245,55 @@ export default function UsuariosPage() {
         </Dialog>
       </div>
 
-      {/* --- Tabela de Usuários --- */}
+      {/* Tabela de Usuários */}
       <div className="rounded-md border">
         <Table>
           <TableHeader>
             <TableRow>
               <TableHead>Nome</TableHead>
-              <TableHead>E-mail (Login)</TableHead>
-              <TableHead>Nível (Role)</TableHead>
+              <TableHead>E-mail</TableHead>
+              <TableHead>Nível</TableHead>
               <TableHead>Ações</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {usuarios.map((usuario) => (
-              <TableRow key={usuario.id}>
-                <TableCell className="font-medium">{usuario.nome}</TableCell>
-                <TableCell>{usuario.email}</TableCell>
-                <TableCell>{usuario.role}</TableCell>
+            {usuarios.map((u) => (
+              <TableRow key={u.id}>
+                <TableCell className="font-medium">{u.nome}</TableCell>
+                <TableCell>{u.email}</TableCell>
                 <TableCell>
-                  <Button variant="destructive" size="sm" 
+                  <span className={u.role === 'admin' ? "text-red-600 font-bold" : "text-blue-600"}>
+                    {u.role.toUpperCase()}
+                  </span>
+                </TableCell>
+                <TableCell>
+                  <Button 
+                    variant="destructive" 
+                    size="sm" 
                     onClick={async () => {
-                      if (confirm(`Tem certeza que quer excluir ${usuario.nome}? Isso NÃO pode ser desfeito.`)) {
-                        // TODO: Excluir o usuário do AUTH (requer backend)
-                        // Vamos precisar de outra Netlify Function para isso
-                        await deleteDoc(doc(db, "usuarios", usuario.id));
+                      if (confirm(`Tem certeza que deseja excluir ${u.nome}?`)) {
+                        try {
+                          await deleteDoc(doc(db, "usuarios", u.id));
+                          // Nota: Para excluir do Authentication também, precisaria de outra rota API.
+                          // Por enquanto, excluímos apenas do banco para impedir listagem.
+                        } catch (e) {
+                          alert("Erro ao excluir usuário.");
+                        }
                       }
-                    }}>
+                    }}
+                  >
                     Excluir
                   </Button>
                 </TableCell>
               </TableRow>
             ))}
+            {usuarios.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={4} className="text-center py-4">
+                  Nenhum usuário encontrado.
+                </TableCell>
+              </TableRow>
+            )}
           </TableBody>
         </Table>
       </div>
