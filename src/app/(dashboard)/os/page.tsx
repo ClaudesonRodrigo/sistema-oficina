@@ -16,7 +16,8 @@ import {
   doc,
   addDoc, 
 } from "firebase/firestore";
-import { db } from "@/lib/firebase";
+// --- CORREÇÃO 1: Adicionei 'auth' aqui ---
+import { db, auth } from "@/lib/firebase";
 import { cn } from "@/lib/utils";
 import { Check, ChevronsUpDown, Trash2, Search, Plus } from "lucide-react";
 import Link from "next/link";
@@ -82,7 +83,7 @@ interface Cliente {
 interface Produto {
   id: string;
   nome: string;
-  codigoSku?: string; // Adicionado para pesquisa
+  codigoSku?: string;
   precoCusto: number; 
   precoVenda: number;
   estoqueAtual: number;
@@ -111,7 +112,6 @@ interface OrdemDeServico {
 
 const osFormSchema = z.object({
   clienteId: z.string().min(1, "Selecione um cliente."),
-  // Campos ocultos preenchidos automaticamente
   veiculoPlaca: z.string().min(3, "Selecione um veículo."),
   veiculoModelo: z.string().optional(),
   servicosDescricao: z.string().optional(),
@@ -131,14 +131,12 @@ const osFormSchema = z.object({
     .min(1, "Adicione pelo menos um item ou serviço."),
 });
 
-// Schema Cliente Rápido
 const clientFormSchema = z.object({
   nome: z.string().min(3, { message: "O nome deve ter pelo menos 3 caracteres." }),
   telefone: z.string().optional(),
   cpfCnpj: z.string().optional(),
 });
 
-// Schema Veículo Rápido
 const vehicleFormSchema = z.object({
   modelo: z.string().min(2, "Informe o modelo."),
   placa: z.string().min(7, "Placa inválida (min 7)."),
@@ -147,18 +145,15 @@ const vehicleFormSchema = z.object({
 });
 
 export default function OsPage() {
-  // Modais
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isClientModalOpen, setIsClientModalOpen] = useState(false);
   const [isVehicleModalOpen, setIsVehicleModalOpen] = useState(false);
 
-  // Dados
   const [ordensDeServico, setOrdensDeServico] = useState<OrdemDeServico[]>([]);
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [produtos, setProdutos] = useState<Produto[]>([]);
   const [veiculosCliente, setVeiculosCliente] = useState<Carro[]>([]);
   
-  // UI Controls
   const [isComboboxOpen, setIsComboboxOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState(""); 
   const [carroSelecionadoId, setCarroSelecionadoId] = useState<string>(""); 
@@ -180,7 +175,6 @@ export default function OsPage() {
     if (userData) {
       const isAdmin = userData.role === 'admin';
       
-      // 1. Busca de OS
       let qOS: Query;
       const osRef = collection(db, "ordensDeServico");
       
@@ -198,7 +192,6 @@ export default function OsPage() {
         );
       });
 
-      // 2. Busca de Clientes
       const qClientes = query(collection(db, "clientes"));
       const unsubClientes = onSnapshot(qClientes, (snapshot) => {
         setClientes(
@@ -206,7 +199,6 @@ export default function OsPage() {
         );
       });
       
-      // 3. Busca Produtos
       const unsubProdutos = onSnapshot(collection(db, "produtos"), (snapshot) => {
         setProdutos(
           snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as Produto))
@@ -242,8 +234,6 @@ export default function OsPage() {
     }); 
 
   // --- Configuração dos Formulários ---
-  
-  // 1. Form Principal (OS)
   const form = useForm<z.infer<typeof osFormSchema>>({
     resolver: zodResolver(osFormSchema),
     defaultValues: {
@@ -256,13 +246,11 @@ export default function OsPage() {
     },
   });
 
-  // 2. Form Cliente Rápido
   const clientForm = useForm<z.infer<typeof clientFormSchema>>({
     resolver: zodResolver(clientFormSchema),
     defaultValues: { nome: "", telefone: "", cpfCnpj: "" },
   });
 
-  // 3. Form Veículo Rápido
   const vehicleForm = useForm<z.infer<typeof vehicleFormSchema>>({
     resolver: zodResolver(vehicleFormSchema),
     defaultValues: { modelo: "", placa: "", ano: "", cor: "" },
@@ -278,7 +266,6 @@ export default function OsPage() {
 
   useEffect(() => {
     if (clienteIdSelecionado) {
-      // Limpa seleções anteriores
       form.setValue("veiculoPlaca", "");
       form.setValue("veiculoModelo", "");
       setCarroSelecionadoId("");
@@ -356,7 +343,7 @@ export default function OsPage() {
   }, 0);
 
 
-  // --- FUNÇÃO ON SUBMIT (OS) ---
+  // --- FUNÇÃO ON SUBMIT (ATUALIZADA PARA VERCEL) ---
   async function onSubmit(values: z.infer<typeof osFormSchema>) {
     
     if (!userData) {
@@ -425,10 +412,15 @@ export default function OsPage() {
     };
 
     try {
-      const response = await fetch('/.netlify/functions/criarOS', {
+      // --- CORREÇÃO 2: Pegar Token de Autenticação ---
+      const token = await auth.currentUser?.getIdToken();
+
+      // --- CORREÇÃO 3: Chamar API Vercel (/api/os/create) ---
+      const response = await fetch('/api/os/create', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}` // Header de Segurança
         },
         body: JSON.stringify({
           novaOS: novaOSParaEnvio, 
@@ -442,18 +434,19 @@ export default function OsPage() {
         throw new Error(result.error || "Erro desconhecido ao salvar OS");
       }
 
-      console.log("OS salva pela Netlify Function!", result.message);
+      console.log("OS salva pela Vercel API!", result.message);
       form.reset();
-      setCarroSelecionadoId(""); // Reset visual select
+      setCarroSelecionadoId(""); 
       setIsModalOpen(false);
+      alert("Ordem de Serviço criada com sucesso!");
 
     } catch (error: any) {
-      console.error("Erro ao chamar a Netlify Function criarOS: ", error);
+      console.error("Erro ao criar OS: ", error);
       alert("Erro ao salvar: " + error.message);
     }
   }
 
-  // --- SUBMIT CLIENTE RÁPIDO ---
+  // --- SUBMITS RÁPIDOS ---
   async function onClientSubmit(values: z.infer<typeof clientFormSchema>) {
     if (!userData) return;
     try {
@@ -465,7 +458,6 @@ export default function OsPage() {
     } catch (error) { console.error(error); alert("Erro ao cadastrar."); }
   }
 
-  // --- SUBMIT VEÍCULO RÁPIDO ---
   async function onVehicleSubmit(values: z.infer<typeof vehicleFormSchema>) {
     if (!userData) return;
     const clienteIdAtual = form.getValues("clienteId");
@@ -485,7 +477,6 @@ export default function OsPage() {
       setIsVehicleModalOpen(false);
       vehicleForm.reset();
       
-      // Auto-seleciona
       setCarroSelecionadoId(docRef.id);
       form.setValue("veiculoPlaca", values.placa.toUpperCase());
       form.setValue("veiculoModelo", values.modelo);
@@ -513,10 +504,7 @@ export default function OsPage() {
             <Form {...form}>
               <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
                 
-                {/* --- LINHA 1: CLIENTE E VEÍCULO (NOVA LÓGICA) --- */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  
-                  {/* CLIENTE */}
                   <FormField
                     control={form.control}
                     name="clienteId"
@@ -537,7 +525,6 @@ export default function OsPage() {
                     )}
                   />
 
-                  {/* VEÍCULO (Aparece se cliente selecionado) */}
                   {clienteIdSelecionado && (
                      <FormItem>
                         <FormLabel>Veículo</FormLabel>
@@ -563,7 +550,6 @@ export default function OsPage() {
                   )}
                 </div>
 
-                {/* --- LINHA 2: OBSERVAÇÕES E GARANTIA --- */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <FormField
                     control={form.control}
@@ -596,7 +582,6 @@ export default function OsPage() {
                   />
                 </div>
 
-                {/* --- SEÇÃO ADICIONAR ITENS --- */}
                 <div>
                   <FormLabel>Adicionar Peças e Serviços</FormLabel>
                   <Popover open={isComboboxOpen} onOpenChange={setIsComboboxOpen}>
@@ -615,7 +600,7 @@ export default function OsPage() {
                             {produtos.map((produto) => (
                               <CommandItem
                                 key={produto.id}
-                                value={`${produto.nome} ${produto.codigoSku || ''}`} // BUSCA POR NOME E CODIGO
+                                value={`${produto.nome} ${produto.codigoSku || ''}`}
                                 onSelect={() => { adicionarProduto(produto); }}
                               >
                                 <Check
@@ -637,7 +622,6 @@ export default function OsPage() {
                   <FormMessage>{form.formState.errors.itens?.message}</FormMessage>
                 </div>
 
-                {/* --- TABELA DE ITENS --- */}
                 <div className="rounded-md border">
                   <Table>
                     <TableHeader>
@@ -697,7 +681,6 @@ export default function OsPage() {
                   </Table>
                 </div>
                 
-                {/* --- TOTAIS E BOTÃO --- */}
                 <div className="flex justify-between items-center">
                   <h2 className="text-lg font-medium text-gray-600">
                     Custo Peças: R$ {custoTotalOS.toFixed(2)}
@@ -716,7 +699,6 @@ export default function OsPage() {
           </DialogContent>
         </Dialog>
 
-        {/* MODAL: CADASTRO RÁPIDO DE CLIENTE */}
         <Dialog open={isClientModalOpen} onOpenChange={setIsClientModalOpen}>
           <DialogContent className="sm:max-w-[425px]">
             <DialogHeader>
@@ -765,7 +747,6 @@ export default function OsPage() {
           </DialogContent>
         </Dialog>
 
-        {/* MODAL: CADASTRO RÁPIDO DE VEÍCULO */}
         <Dialog open={isVehicleModalOpen} onOpenChange={setIsVehicleModalOpen}>
           <DialogContent className="sm:max-w-[425px]">
             <DialogHeader>
@@ -829,7 +810,6 @@ export default function OsPage() {
 
       </div>
 
-      {/* --- BARRA DE PESQUISA --- */}
       <div className="relative mb-6">
         <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-5 w-5" />
         <Input 
@@ -840,7 +820,6 @@ export default function OsPage() {
         />
       </div>
 
-      {/* --- TABELA DE LISTAGEM DE OS --- */}
       <div className="rounded-md border">
         <Table>
           <TableHeader>
@@ -873,7 +852,7 @@ export default function OsPage() {
                   </Link>
                 </TableCell>
                 <TableCell className="font-medium">{os.nomeCliente}</TableCell>
-                <TableCell>{os.veiculoPlaca}</TableCell> {/* CORRIGIDO: usando veiculoPlaca */}
+                <TableCell>{os.veiculoPlaca}</TableCell>
                 <TableCell>
                   {os.dataAbertura && os.dataAbertura.seconds
                     ? new Date(os.dataAbertura.seconds * 1000).toLocaleDateString()
@@ -886,7 +865,6 @@ export default function OsPage() {
                     <Link href={`/os/${os.id}`}>Ver Detalhes</Link>
                   </Button>
                   
-                  {/* ATUALIZAÇÃO: Botão de Excluir para Admin */}
                   {userData?.role === 'admin' && (
                     <Button 
                       variant="destructive" 
