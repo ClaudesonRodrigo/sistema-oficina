@@ -1,83 +1,95 @@
 // src/context/AuthContext.tsx
 "use client";
 
-import React, { createContext, useContext, useEffect, useState } from 'react';
-import { onAuthStateChanged, User } from 'firebase/auth';
-import { auth, db } from '@/lib/firebase';
-import { doc, getDoc, onSnapshot } from 'firebase/firestore';
+import { createContext, useContext, useEffect, useState, ReactNode } from "react";
+import { 
+  onAuthStateChanged, 
+  User, 
+  signOut 
+} from "firebase/auth";
+import { doc, getDoc, setDoc } from "firebase/firestore";
+import { auth, db } from "@/lib/firebase";
+import { useRouter } from "next/navigation";
 
-// 1. DEFINIÇÃO DO NOVO TIPO DE USUÁRIO (COM ROLE)
-export interface UserData {
+// Tipo dos dados do usuário no Firestore
+interface UserData {
   id: string;
   nome: string;
   email: string;
   role: "admin" | "operador";
+  plan?: string;
 }
 
-// 2. ATUALIZA O TIPO DO CONTEXTO
-type AuthContextType = {
-  user: User | null; // O usuário do Firebase Auth
-  userData: UserData | null; // Os dados do Firestore (com role)
-  loading: boolean; // "Carregando"
-};
+// Interface do Contexto (Aqui estava faltando o logout!)
+interface AuthContextType {
+  user: User | null;      // O usuário técnico do Firebase Authentication
+  userData: UserData | null; // Os dados do nosso banco (nome, cargo, etc)
+  loading: boolean;
+  logout: () => Promise<void>; // <--- ADICIONADO AQUI
+}
 
-// 3. ATUALIZA O ESTADO INICIAL
-const AuthContext = createContext<AuthContextType>({
-  user: null,
-  userData: null,
-  loading: true,
-});
+const AuthContext = createContext<AuthContextType>({} as AuthContextType);
 
-// 4. ATUALIZA O PROVEDOR
-export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
+export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [userData, setUserData] = useState<UserData | null>(null);
   const [loading, setLoading] = useState(true);
+  const router = useRouter();
 
   useEffect(() => {
-    // O "sensor" do Firebase Auth (continua igual)
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      setUser(user);
-      
-      if (user) {
-        // --- NOVA LÓGICA ---
-        // 5. Se o usuário logou, busca os dados dele no Firestore
-        const userDocRef = doc(db, 'usuarios', user.uid);
-        
-        // Usamos onSnapshot para "ouvir" mudanças no perfil em tempo real
-        onSnapshot(userDocRef, (doc) => {
-          if (doc.exists()) {
-            setUserData({ id: doc.id, ...doc.data() } as UserData);
-          } else {
-            // Se não achar o doc, desloga por segurança
-            console.error("Usuário não encontrado no Firestore. Deslogando.");
-            setUserData(null);
-            auth.signOut(); // Força o logout
-          }
-          setLoading(false);
-        });
-        // --- FIM DA NOVA LÓGICA ---
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      setLoading(true);
+      setUser(currentUser);
+
+      if (currentUser) {
+        // Buscar dados extras no Firestore (Role, Nome, etc)
+        const docRef = doc(db, "usuarios", currentUser.uid);
+        const docSnap = await getDoc(docRef);
+
+        if (docSnap.exists()) {
+          setUserData({ id: docSnap.id, ...docSnap.data() } as UserData);
+        } else {
+          // Se o usuário existe no Auth mas não no banco (ex: criado manualmente), cria um perfil básico
+          // Isso evita travar o sistema
+          const novoUsuario: UserData = {
+            id: currentUser.uid,
+            nome: currentUser.displayName || "Usuário",
+            email: currentUser.email || "",
+            role: "operador" // Padrão seguro
+          };
+          
+          // Opcional: Salvar no banco para a próxima vez
+          // await setDoc(docRef, novoUsuario);
+          
+          setUserData(novoUsuario);
+        }
       } else {
-        // Se deslogou, limpa tudo
-        setUser(null);
         setUserData(null);
-        setLoading(false);
       }
+      setLoading(false);
     });
 
-    // Limpa o "sensor"
     return () => unsubscribe();
   }, []);
 
+  // Função de Logout
+  const logout = async () => {
+    try {
+      await signOut(auth);
+      setUser(null);
+      setUserData(null);
+      router.push("/login"); // Redireciona para login após sair
+    } catch (error) {
+      console.error("Erro ao sair:", error);
+    }
+  };
+
   return (
-    // 6. FORNECE OS NOVOS DADOS PARA O APP
-    <AuthContext.Provider value={{ user, userData, loading }}>
+    <AuthContext.Provider value={{ user, userData, loading, logout }}>
       {children}
     </AuthContext.Provider>
   );
-};
+}
 
-// 7. O HOOK (sem mudanças, mas agora retorna o userData)
-export const useAuth = () => {
-  return useContext(AuthContext);
-};
+// Hook personalizado para facilitar o uso
+export const useAuth = () => useContext(AuthContext);

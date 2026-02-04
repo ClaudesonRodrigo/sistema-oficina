@@ -16,7 +16,8 @@ import {
   doc,
   addDoc, 
 } from "firebase/firestore";
-import { db } from "@/lib/firebase";
+// IMPORTANTE: Adicionado 'auth' para gerar o token de segurança
+import { db, auth } from "@/lib/firebase"; 
 import { cn } from "@/lib/utils";
 import { Check, ChevronsUpDown, Trash2, Search, Plus } from "lucide-react";
 import Link from "next/link";
@@ -82,7 +83,7 @@ interface Cliente {
 interface Produto {
   id: string;
   nome: string;
-  codigoSku?: string; 
+  codigoSku?: string; // Adicionado para pesquisa
   precoCusto: number; 
   precoVenda: number;
   estoqueAtual: number;
@@ -356,7 +357,7 @@ export default function OsPage() {
   }, 0);
 
 
-  // --- FUNÇÃO ON SUBMIT (OS) ---
+  // --- FUNÇÃO ON SUBMIT (ATUALIZADA PARA VERCEL) ---
   async function onSubmit(values: z.infer<typeof osFormSchema>) {
     
     if (!userData) {
@@ -425,10 +426,15 @@ export default function OsPage() {
     };
 
     try {
-      const response = await fetch('/.netlify/functions/criarOS', {
+      // CORREÇÃO: Pegar Token de Autenticação para segurança
+      const token = await auth.currentUser?.getIdToken();
+
+      // CORREÇÃO: Chamar API Vercel (/api/os/create) em vez de Netlify
+      const response = await fetch('/api/os/create', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}` // Header de Segurança
         },
         body: JSON.stringify({
           novaOS: novaOSParaEnvio, 
@@ -442,18 +448,19 @@ export default function OsPage() {
         throw new Error(result.error || "Erro desconhecido ao salvar OS");
       }
 
-      console.log("OS salva pela Netlify Function!", result.message);
+      console.log("OS salva pela Vercel API!", result.message);
       form.reset();
-      setCarroSelecionadoId(""); // Reset visual select
+      setCarroSelecionadoId(""); 
       setIsModalOpen(false);
+      alert("Ordem de Serviço criada com sucesso!");
 
     } catch (error: any) {
-      console.error("Erro ao chamar a Netlify Function criarOS: ", error);
+      console.error("Erro ao criar OS: ", error);
       alert("Erro ao salvar: " + error.message);
     }
   }
 
-  // --- SUBMIT CLIENTE RÁPIDO ---
+  // --- SUBMITS RÁPIDOS ---
   async function onClientSubmit(values: z.infer<typeof clientFormSchema>) {
     if (!userData) return;
     try {
@@ -465,7 +472,6 @@ export default function OsPage() {
     } catch (error) { console.error(error); alert("Erro ao cadastrar."); }
   }
 
-  // --- SUBMIT VEÍCULO RÁPIDO ---
   async function onVehicleSubmit(values: z.infer<typeof vehicleFormSchema>) {
     if (!userData) return;
     const clienteIdAtual = form.getValues("clienteId");
@@ -476,8 +482,7 @@ export default function OsPage() {
     try {
       const docRef = await addDoc(collection(db, "carros"), {
         ...values,
-        // PADRONIZAÇÃO DA PLACA NA OS TAMBÉM:
-        placa: values.placa.replace(/[^a-zA-Z0-9]/g, "").toUpperCase(),
+        placa: values.placa.toUpperCase(),
         clienteId: clienteIdAtual,
         nomeCliente: clienteObj?.nome || "Desconhecido",
         ownerId: userData.id
@@ -486,9 +491,8 @@ export default function OsPage() {
       setIsVehicleModalOpen(false);
       vehicleForm.reset();
       
-      // Auto-seleciona
       setCarroSelecionadoId(docRef.id);
-      form.setValue("veiculoPlaca", values.placa.replace(/[^a-zA-Z0-9]/g, "").toUpperCase());
+      form.setValue("veiculoPlaca", values.placa.toUpperCase());
       form.setValue("veiculoModelo", values.modelo);
       form.clearErrors("veiculoPlaca");
 
@@ -597,7 +601,7 @@ export default function OsPage() {
                   />
                 </div>
 
-                {/* --- SEÇÃO ADICIONAR ITENS (COM LUPA E CÓDIGO) --- */}
+                {/* --- SEÇÃO ADICIONAR ITENS --- */}
                 <div>
                   <FormLabel>Adicionar Peças e Serviços</FormLabel>
                   <Popover open={isComboboxOpen} onOpenChange={setIsComboboxOpen}>
@@ -730,7 +734,7 @@ export default function OsPage() {
                   name="nome"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Nome do Cliente</FormLabel>
+                      <FormLabel>Nome</FormLabel>
                       <FormControl><Input placeholder="Ex: João da Silva" {...field} /></FormControl>
                       <FormMessage />
                     </FormItem>
@@ -741,7 +745,7 @@ export default function OsPage() {
                   name="telefone"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Telefone / WhatsApp</FormLabel>
+                      <FormLabel>Telefone</FormLabel>
                       <FormControl><Input placeholder="(00) 00000-0000" {...field} /></FormControl>
                       <FormMessage />
                     </FormItem>

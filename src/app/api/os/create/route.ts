@@ -1,15 +1,14 @@
-// src/app/api/os/create/route.ts
 import { NextResponse } from 'next/server';
 import { adminDb, adminAuth } from '@/lib/firebase-admin';
+import * as admin from 'firebase-admin';
 
 export async function POST(request: Request) {
   try {
-    // 1. Segurança Básica (Verificar se está logado)
+    // 1. Segurança: Verificar se o usuário está logado
     const authHeader = request.headers.get('Authorization');
     if (!authHeader?.startsWith('Bearer ')) {
       return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
     }
-    // Validamos o token para garantir que a requisição vem do app logado
     const token = authHeader.split('Bearer ')[1];
     await adminAuth.verifyIdToken(token);
 
@@ -17,18 +16,17 @@ export async function POST(request: Request) {
     const { novaOS, itens } = await request.json();
 
     if (!novaOS || !itens) {
-      return NextResponse.json({ error: 'Dados da OS inválidos' }, { status: 400 });
+      return NextResponse.json({ error: 'Dados inválidos' }, { status: 400 });
     }
 
-    // 3. Executar Transação (Estoque + OS)
+    // 3. Executar Transação (Garante que o estoque não fure)
     await adminDb.runTransaction(async (transaction) => {
-      // Ajuste de data
-      const dataAbertura = new Date(novaOS.dataAbertura);
+      // Gera ID da nova OS
       const osRef = adminDb.collection("ordensDeServico").doc();
       
       const produtosParaAtualizar = [];
 
-      // A) Leitura (Verificar estoque)
+      // A) Verificar Estoque
       for (const item of itens) {
         if (item.tipo === "peca") {
           const produtoRef = adminDb.collection("produtos").doc(item.id);
@@ -42,16 +40,23 @@ export async function POST(request: Request) {
           const novoEstoque = estoqueAtual - item.qtde;
 
           if (novoEstoque < 0) {
-            throw new Error(`Estoque insuficiente para ${item.nome}. Atual: ${estoqueAtual}`);
+            throw new Error(`Estoque insuficiente para ${item.nome}. Restam: ${estoqueAtual}`);
           }
 
           produtosParaAtualizar.push({ ref: produtoRef, novoEstoque });
         }
       }
 
-      // B) Escrita (Salvar OS e Atualizar Estoque)
-      transaction.set(osRef, { ...novaOS, dataAbertura, id: osRef.id });
+      // B) Salvar OS (Converte datas strings para Timestamp se necessário)
+      const dataAbertura = admin.firestore.FieldValue.serverTimestamp();
+      
+      transaction.set(osRef, { 
+        ...novaOS, 
+        dataAbertura, 
+        id: osRef.id 
+      });
 
+      // C) Atualizar Estoque
       for (const p of produtosParaAtualizar) {
         transaction.update(p.ref, { estoqueAtual: p.novoEstoque });
       }
