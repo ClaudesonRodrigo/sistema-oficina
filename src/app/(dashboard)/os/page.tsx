@@ -426,10 +426,10 @@ export default function OsPage() {
     };
 
     try {
-      // --- CORREÇÃO 2: Pegar Token de Autenticação ---
+      // --- CORREÇÃO: Pegar Token de Autenticação ---
       const token = await auth.currentUser?.getIdToken();
 
-      // --- CORREÇÃO 3: Chamar API Vercel (/api/os/create) ---
+      // --- CORREÇÃO: Chamar API Vercel (/api/os/create) ---
       const response = await fetch('/api/os/create', {
         method: 'POST',
         headers: {

@@ -6,22 +6,22 @@ import { collection, query, where, onSnapshot } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { AlertTriangle, Copy, ChevronDown, ChevronUp } from "lucide-react"; // Novos ícones
+import { AlertTriangle, Copy, ChevronDown, ChevronUp } from "lucide-react";
 
 interface ProdutoBaixoEstoque {
   id: string;
   nome: string;
   estoqueAtual: number;
   estoqueMinimo?: number;
-  monitorarEstoque?: boolean; // Novo campo opcional
+  monitorarEstoque?: boolean;
 }
 
 export default function AlertaEstoque() {
   const [produtos, setProdutos] = useState<ProdutoBaixoEstoque[]>([]);
   const [loading, setLoading] = useState(true);
   
-  // Estado para controlar se o card está minimizado
-  const [isMinimized, setIsMinimized] = useState(false);
+  // MUDANÇA AQUI: Começa como true (Minimizado por padrão)
+  const [isMinimized, setIsMinimized] = useState(true);
 
   useEffect(() => {
     const q = query(
@@ -35,9 +35,7 @@ export default function AlertaEstoque() {
       snapshot.forEach((doc) => {
         const data = doc.data();
         
-        // VERIFICAÇÃO IMPORTANTE:
-        // Se monitorarEstoque for explicitamente 'false', ignoramos este produto.
-        // (Para peças usadas ou únicas que não precisam de reposição)
+        // Ignora produtos que não devem ser monitorados
         if (data.monitorarEstoque === false) {
           return;
         }
@@ -62,7 +60,7 @@ export default function AlertaEstoque() {
   }, []);
 
   const copiarListaCompras = (e: React.MouseEvent) => {
-    e.stopPropagation(); // Evita fechar o card se clicar no botão
+    e.stopPropagation(); // Evita fechar/abrir o card se clicar no botão
     if (produtos.length === 0) return;
 
     let texto = "*LISTA DE COMPRAS URGENTE - OFICINA*\n\n";
@@ -82,8 +80,8 @@ export default function AlertaEstoque() {
   return (
     <Card className={`mb-6 border-destructive bg-destructive/10 transition-all duration-300 ${isMinimized ? 'h-16 overflow-hidden' : ''}`}>
       <CardHeader 
-        className="flex flex-row items-center justify-between pb-2 space-y-0 cursor-pointer select-none"
-        onClick={() => setIsMinimized(!isMinimized)} // Clicar no header minimiza/expande
+        className="flex flex-row items-center justify-between pb-2 space-y-0 cursor-pointer select-none h-16" // Fixei h-16 para alinhar bem quando fechado
+        onClick={() => setIsMinimized(!isMinimized)}
       >
         <div className="flex items-center gap-2">
            <AlertTriangle className="h-5 w-5 text-destructive" />
@@ -96,7 +94,7 @@ export default function AlertaEstoque() {
         </div>
         
         <div className="flex items-center gap-2">
-          {/* Botão só aparece se não estiver minimizado */}
+          {/* Botão de Copiar (Só aparece se estiver aberto) */}
           {!isMinimized && (
             <Button variant="outline" size="sm" onClick={copiarListaCompras} className="bg-white border-destructive text-destructive hover:bg-destructive hover:text-white">
               <Copy className="mr-2 h-4 w-4" />
@@ -104,14 +102,13 @@ export default function AlertaEstoque() {
             </Button>
           )}
           
-          {/* Ícone de Minimizar/Expandir */}
+          {/* Ícone Indicador (Seta) */}
           <Button variant="ghost" size="sm" className="text-destructive hover:bg-destructive/20">
             {isMinimized ? <ChevronDown className="h-5 w-5" /> : <ChevronUp className="h-5 w-5" />}
           </Button>
         </div>
       </CardHeader>
       
-      {/* Conteúdo só renderiza se não estiver minimizado (ou usa CSS para esconder) */}
       <CardContent>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 mt-2">
           {produtos.map((produto) => (

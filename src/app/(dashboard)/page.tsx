@@ -16,9 +16,10 @@ import {
   Timestamp,
 } from "firebase/firestore";
 import { useAuth } from "@/context/AuthContext";
+// Importando date-fns para garantir datas corretas
+import { startOfDay, endOfDay } from "date-fns";
 
 import AlertaEstoque from "@/components/AlertaEstoque";
-// --- NOVO: Importa os Gráficos ---
 import DashboardCharts from "@/components/DashboardCharts";
 
 // Componentes Shadcn
@@ -101,13 +102,15 @@ export default function HomePage() {
   const [loadingProduto, setLoadingProduto] = useState(false);
   const [searchedProduto, setSearchedProduto] = useState(false);
 
-  // --- EFEITO PARA BUSCAR MOVIMENTAÇÕES ---
+  // --- EFEITO PARA BUSCAR MOVIMENTAÇÕES (CORRIGIDO) ---
   useEffect(() => {
     if (isAdmin && userData) {
       setLoadingCaixa(true);
+      
+      // CORREÇÃO: Usando date-fns para garantir inicio e fim do dia corretos
       const hoje = new Date();
-      const inicioDoDia = new Date(hoje.setHours(0, 0, 0, 0));
-      const fimDoDia = new Date(hoje.setHours(23, 59, 59, 999));
+      const inicioDoDia = startOfDay(hoje);
+      const fimDoDia = endOfDay(hoje);
 
       const movRef = collection(db, "movimentacoes");
       
@@ -117,18 +120,27 @@ export default function HomePage() {
         where("data", "<=", fimDoDia)
       );
 
+      console.log("Iniciando monitoramento do caixa...");
+
       const unsub = onSnapshot(q, (snapshot) => {
+        console.log(`Registros encontrados hoje: ${snapshot.size}`); // Debug no console
+
         let faturamentoBruto = 0;
         let custoPecas = 0;
         let saidas = 0;
 
         snapshot.forEach((doc) => {
           const data = doc.data();
+          
+          // CORREÇÃO: Forçando conversão para Number para evitar erro de soma de texto
+          const valor = Number(data.valor) || 0;
+          const custo = Number(data.custo) || 0;
+
           if (data.tipo === "entrada") {
-            faturamentoBruto += data.valor;
-            custoPecas += data.custo || 0; 
+            faturamentoBruto += valor;
+            custoPecas += custo; 
           } else if (data.tipo === "saida") {
-            saidas += data.valor;
+            saidas += valor;
           }
         });
 
@@ -170,9 +182,11 @@ export default function HomePage() {
     setResultadosPlaca([]);
     try {
       const osRef = collection(db, "ordensDeServico");
+      const placaFormatada = values.placa.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
+
       const q = query(
         osRef,
-        where("veiculoPlaca", "==", values.placa.toUpperCase()),
+        where("veiculoPlaca", "==", placaFormatada),
         orderBy("dataAbertura", "desc")
       );
       const querySnapshot = await getDocs(q);
@@ -309,7 +323,6 @@ export default function HomePage() {
             </Card>
           </div>
 
-          {/* --- NOVO: GRÁFICOS DO DASHBOARD --- */}
           <DashboardCharts />
         </div>
       )}

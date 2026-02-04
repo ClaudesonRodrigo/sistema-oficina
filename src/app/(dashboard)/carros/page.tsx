@@ -68,7 +68,7 @@ interface Carro {
   ano?: string;
   cor?: string;
   clienteId: string;
-  nomeCliente?: string; // Para exibir na tabela
+  nomeCliente?: string;
   ownerId: string;
 }
 
@@ -129,9 +129,6 @@ export default function CarrosPage() {
         const listaCarros: Carro[] = [];
         snapshot.forEach((doc) => {
           const data = doc.data();
-          // Tenta encontrar o nome do cliente na lista de clientes carregada
-          // (Nota: isso funciona melhor se clientes já estiver carregado, 
-          // mas para exibição simples resolve)
           listaCarros.push({ 
             id: doc.id, 
             ...data,
@@ -162,12 +159,12 @@ export default function CarrosPage() {
     if (!userData) return;
 
     try {
-      // Encontra o nome do cliente para facilitar buscas futuras (opcional, mas útil)
       const clienteSelecionado = clientes.find(c => c.id === values.clienteId);
       
       await addDoc(collection(db, "carros"), {
         ...values,
-        placa: values.placa.toUpperCase(), // Placa sempre maiúscula
+        // PADRONIZAÇÃO DA PLACA: Maiúsculo e sem caracteres especiais
+        placa: values.placa.replace(/[^a-zA-Z0-9]/g, "").toUpperCase(), 
         nomeCliente: clienteSelecionado?.nome || "Desconhecido",
         ownerId: userData.id
       });

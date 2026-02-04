@@ -5,11 +5,11 @@ import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { collection, query, where, getDocs, Timestamp, onSnapshot, Query } from "firebase/firestore";
+import { collection, query, where, getDocs, Timestamp, onSnapshot } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { format, startOfDay, endOfDay } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { Calendar as CalendarIcon } from "lucide-react";
+import { Calendar as CalendarIcon, AlertTriangle } from "lucide-react"; // Adicionei ícone de alerta
 
 import { useAuth } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
@@ -83,6 +83,14 @@ const reportSchema = z.object({
   operadorId: z.string().default("todos"), 
 });
 
+// --- FUNÇÃO HELPER DE FORMATAÇÃO (NOVIDADE) ---
+const formatarMoeda = (valor: number) => {
+  return new Intl.NumberFormat("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+  }).format(valor);
+};
+
 export default function RelatoriosPage() {
   const [resumo, setResumo] = useState<ResumoCaixa | null>(null);
   const [movimentacoes, setMovimentacoes] = useState<Movimentacao[]>([]);
@@ -142,6 +150,7 @@ export default function RelatoriosPage() {
         queryConstraints.push(where("ownerId", "==", operadorId));
       }
 
+      // Firestore permite passar array de constraints espalhado
       const q = query(movRef, ...queryConstraints);
       
       const querySnapshot = await getDocs(q);
@@ -173,6 +182,10 @@ export default function RelatoriosPage() {
         saidas,
         lucroLiquido,
       });
+      
+      // Ordenar por data (mais recente primeiro) para a tabela ficar lógica
+      listaMovimentacoes.sort((a, b) => b.data.seconds - a.data.seconds);
+
       setMovimentacoes(listaMovimentacoes);
     } catch (error) {
       console.error("Erro ao gerar relatório:", error);
@@ -206,7 +219,6 @@ export default function RelatoriosPage() {
       <Card className="mb-8">
         <CardContent className="pt-6">
           <Form {...form}>
-            {/* Este form já era responsivo */}
             <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col md:flex-row gap-4 items-end">
               
               <FormField
@@ -221,7 +233,7 @@ export default function RelatoriosPage() {
                           <Button
                             variant={"outline"}
                             className={cn(
-                              "w-full md:w-60 pl-3 text-left font-normal", // w-full para mobile
+                              "w-full md:w-60 pl-3 text-left font-normal",
                               !field.value && "text-muted-foreground"
                             )}
                           >
@@ -260,7 +272,7 @@ export default function RelatoriosPage() {
                           <Button
                             variant={"outline"}
                             className={cn(
-                              "w-full md:w-60 pl-3 text-left font-normal", // w-full para mobile
+                              "w-full md:w-60 pl-3 text-left font-normal",
                               !field.value && "text-muted-foreground"
                             )}
                           >
@@ -295,7 +307,7 @@ export default function RelatoriosPage() {
                     <FormLabel>Operador</FormLabel>
                     <Select onValueChange={field.onChange} defaultValue={field.value}>
                       <FormControl>
-                        <SelectTrigger className="w-full md:w-60"> {/* w-full para mobile */}
+                        <SelectTrigger className="w-full md:w-60">
                           <SelectValue placeholder="Filtrar por operador" />
                         </SelectTrigger>
                       </FormControl>
@@ -313,7 +325,7 @@ export default function RelatoriosPage() {
                 )}
               />
               
-              <Button type="submit" disabled={loading} className="h-10 w-full md:w-auto"> {/* w-full para mobile */}
+              <Button type="submit" disabled={loading} className="h-10 w-full md:w-auto">
                 {loading ? "Gerando..." : "Gerar Relatório"}
               </Button>
             </form>
@@ -322,12 +334,11 @@ export default function RelatoriosPage() {
       </Card>
 
       {/* --- Resumo do Período --- */}
-      {loading && <p>Carregando relatório...</p>}
+      {loading && <p>Carregando dados...</p>}
       
       {resumo && (
         <div className="mb-8">
           <h2 className="text-3xl font-bold mb-4">Resumo do Período</h2>
-          {/* --- ATUALIZAÇÃO: Grid responsivo --- */}
           <div className="grid gap-4 grid-cols-1 md:grid-cols-3 lg:grid-cols-5">
             <Card>
               <CardHeader className="pb-2">
@@ -335,17 +346,17 @@ export default function RelatoriosPage() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold text-blue-600">
-                  R$ {resumo.faturamentoBruto.toFixed(2)}
+                  {formatarMoeda(resumo.faturamentoBruto)}
                 </div>
               </CardContent>
             </Card>
             <Card>
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium">Custo Peças (Vendido)</CardTitle>
+                <CardTitle className="text-sm font-medium">Custo Peças</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold text-gray-500">
-                  R$ {resumo.custoPecas.toFixed(2)}
+                  {formatarMoeda(resumo.custoPecas)}
                 </div>
               </CardContent>
             </Card>
@@ -355,7 +366,7 @@ export default function RelatoriosPage() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold text-green-600">
-                  R$ {resumo.lucroBruto.toFixed(2)}
+                  {formatarMoeda(resumo.lucroBruto)}
                 </div>
               </CardContent>
             </Card>
@@ -365,7 +376,7 @@ export default function RelatoriosPage() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold text-red-600">
-                  R$ {resumo.saidas.toFixed(2)}
+                  {formatarMoeda(resumo.saidas)}
                 </div>
               </CardContent>
             </Card>
@@ -375,7 +386,7 @@ export default function RelatoriosPage() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">
-                  R$ {resumo.lucroLiquido.toFixed(2)}
+                  {formatarMoeda(resumo.lucroLiquido)}
                 </div>
               </CardContent>
             </Card>
@@ -383,10 +394,18 @@ export default function RelatoriosPage() {
         </div>
       )}
 
-      {/* --- Tabela de Movimentações (Já rolável) --- */}
+      {/* --- Tabela de Movimentações (Otimizada) --- */}
       {movimentacoes.length > 0 && (
         <div className="mt-8">
-          <h2 className="text-2xl font-bold mb-4">Todas as Movimentações no Período</h2>
+          <div className="flex justify-between items-center mb-4">
+             <h2 className="text-2xl font-bold">Detalhamento</h2>
+             {/* Aviso de Otimização */}
+             <div className="flex items-center text-sm text-amber-600 bg-amber-50 px-3 py-1 rounded-full border border-amber-200">
+               <AlertTriangle className="h-4 w-4 mr-2" />
+               Exibindo as últimas 50 movimentações para otimizar a performance.
+             </div>
+          </div>
+
           <div className="rounded-md border">
             <Table>
               <TableHeader>
@@ -398,7 +417,8 @@ export default function RelatoriosPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {movimentacoes.map((mov) => (
+                {/* OTIMIZAÇÃO: Limitando a renderização apenas aos primeiros 50 itens */}
+                {movimentacoes.slice(0, 50).map((mov) => (
                   <TableRow key={mov.id}>
                     <TableCell>
                       {new Date(mov.data.seconds * 1000).toLocaleString('pt-BR')}
@@ -410,12 +430,16 @@ export default function RelatoriosPage() {
                     <TableCell className={cn(
                       mov.tipo === 'entrada' ? 'text-green-600' : 'text-red-600'
                     )}>
-                      {mov.tipo === 'entrada' ? '+' : '-'} R$ {mov.valor.toFixed(2)}
+                      {mov.tipo === 'entrada' ? '+ ' : '- '} 
+                      {formatarMoeda(mov.valor)}
                     </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
             </Table>
+          </div>
+          <div className="text-center mt-4 text-sm text-gray-500">
+            Total de registros encontrados no período: {movimentacoes.length}
           </div>
         </div>
       )}
