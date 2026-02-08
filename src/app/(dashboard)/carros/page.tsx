@@ -11,13 +11,20 @@ import {
   onSnapshot, 
   query, 
   where, 
-  Query,
   deleteDoc,
-  doc
+  doc,
+  serverTimestamp
 } from "firebase/firestore"; 
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner"; // UX Melhorada
+
+// Ícones
+import { Search, Loader2, Trash2, CarFront, AlertCircle } from "lucide-react";
+
+// Tipos Centralizados
+import { Cliente, Carro } from "@/types";
 
 // Componentes Shadcn
 import { Button } from "@/components/ui/button";
@@ -55,23 +62,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-// Interfaces
-interface Cliente {
-  id: string;
-  nome: string;
-}
-
-interface Carro {
-  id: string; 
-  modelo: string;
-  placa: string;
-  ano?: string;
-  cor?: string;
-  clienteId: string;
-  nomeCliente?: string;
-  ownerId: string;
-}
-
 // Schema de Validação
 const formSchema = z.object({
   clienteId: z.string().min(1, "Selecione um cliente."),
@@ -83,57 +73,58 @@ const formSchema = z.object({
 
 export default function CarrosPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
+  
+  // Estados de Dados
   const [carros, setCarros] = useState<Carro[]>([]);
   const [clientes, setClientes] = useState<Cliente[]>([]);
+  
+  // Busca
+  const [searchTerm, setSearchTerm] = useState("");
 
   const { userData, loading: authLoading } = useAuth();
   const router = useRouter();
 
   // Guardião de Rota
   if (authLoading) {
-    return <div className="flex h-screen w-full items-center justify-center">Carregando...</div>;
+    return <div className="flex h-screen w-full items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-primary"/></div>;
   }
   if (!userData) { 
     router.push('/login');
     return null;
   }
 
-  // Buscar Dados (Carros e Clientes)
+  // Buscar Dados
   useEffect(() => {
     if (userData) {
       const isAdmin = userData.role === 'admin';
       
-      // 1. Buscar Clientes (Para o Select)
+      // 1. Buscar Clientes
       const clientesRef = collection(db, "clientes");
-      let qClientes: Query;
-      if (isAdmin) {
-        qClientes = query(clientesRef);
-      } else {
-        qClientes = query(clientesRef, where("ownerId", "==", userData.id));
-      }
+      const qClientes = isAdmin ? query(clientesRef) : query(clientesRef, where("ownerId", "==", userData.id));
       
       const unsubClientes = onSnapshot(qClientes, (snapshot) => {
         setClientes(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Cliente)));
       });
 
-      // 2. Buscar Carros (Para a Tabela)
+      // 2. Buscar Carros
       const carrosRef = collection(db, "carros");
-      let qCarros: Query;
-      if (isAdmin) {
-        qCarros = query(carrosRef);
-      } else {
-        qCarros = query(carrosRef, where("ownerId", "==", userData.id));
-      }
+      const qCarros = isAdmin ? query(carrosRef) : query(carrosRef, where("ownerId", "==", userData.id));
 
       const unsubCarros = onSnapshot(qCarros, (snapshot) => {
         const listaCarros: Carro[] = [];
         snapshot.forEach((doc) => {
-          const data = doc.data();
-          listaCarros.push({ 
-            id: doc.id, 
-            ...data,
-          } as Carro);
+          // @ts-ignore - Ignorando erro de tipagem do createdAt por enquanto
+          listaCarros.push({ id: doc.id, ...doc.data() } as Carro);
         });
+        
+        // Ordenação no Front: Novos primeiro (baseado em createdAt ou fallback)
+        // Se não tiver data, joga pro final
+        listaCarros.sort((a: any, b: any) => {
+            const dateA = a.createdAt?.seconds || 0;
+            const dateB = b.createdAt?.seconds || 0;
+            return dateB - dateA;
+        });
+
         setCarros(listaCarros);
       });
 
@@ -143,6 +134,22 @@ export default function CarrosPage() {
       };
     }
   }, [userData]);
+
+  // --- LÓGICA DE FILTRO INTELIGENTE ---
+  // Se tiver busca: Mostra tudo que bater
+  // Se NÃO tiver busca: Mostra só os top 30
+  const carrosFiltrados = carros.filter((carro) => {
+    const termo = searchTerm.toLowerCase();
+    const modelo = (carro.modelo || "").toLowerCase();
+    const placa = (carro.placa || "").toLowerCase();
+    const dono = (carro.nomeCliente || "").toLowerCase();
+
+    return modelo.includes(termo) || placa.includes(termo) || dono.includes(termo);
+  });
+
+  const carrosParaExibir = searchTerm 
+    ? carrosFiltrados 
+    : carrosFiltrados.slice(0, 30); // LIMITA A 30 VISUALMENTE
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -163,30 +170,44 @@ export default function CarrosPage() {
       
       await addDoc(collection(db, "carros"), {
         ...values,
-        // PADRONIZAÇÃO DA PLACA: Maiúsculo e sem caracteres especiais
         placa: values.placa.replace(/[^a-zA-Z0-9]/g, "").toUpperCase(), 
         nomeCliente: clienteSelecionado?.nome || "Desconhecido",
-        ownerId: userData.id
+        ownerId: userData.id,
+        createdAt: serverTimestamp() // Adiciona data para ordenar
       });
 
-      console.log("Carro cadastrado com sucesso!");
+      toast.success("Veículo cadastrado com sucesso!");
       form.reset();
       setIsModalOpen(false);
 
     } catch (error) {
-      console.error("Erro ao cadastrar carro: ", error);
-      alert("Erro ao cadastrar veículo.");
+      console.error("Erro:", error);
+      toast.error("Erro ao cadastrar veículo.");
+    }
+  }
+
+  const handleDelete = async (carroId: string) => {
+    if (confirm("Tem certeza que deseja excluir este veículo?")) {
+       try {
+         await deleteDoc(doc(db, "carros", carroId));
+         toast.success("Veículo excluído.");
+       } catch (error) {
+         console.error(error);
+         toast.error("Erro ao excluir veículo.");
+       }
     }
   }
 
   return (
     <div>
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-4xl font-bold">Veículos</h1>
+      <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
+        <h1 className="text-4xl font-bold flex items-center gap-2">
+          <CarFront className="h-10 w-10" /> Veículos
+        </h1>
         
         <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
           <DialogTrigger asChild>
-            <Button>Cadastrar Veículo</Button>
+            <Button size="lg" className="w-full md:w-auto">Cadastrar Veículo</Button>
           </DialogTrigger>
           <DialogContent className="sm:max-w-[425px]">
             <DialogHeader>
@@ -292,6 +313,18 @@ export default function CarrosPage() {
         </Dialog>
       </div>
 
+      {/* --- BARRA DE PESQUISA --- */}
+      <div className="relative mb-6">
+        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-5 w-5" />
+        <Input 
+          placeholder="Pesquisar por modelo, placa ou nome do dono..." 
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          className="pl-10 text-lg py-6"
+        />
+      </div>
+
+      {/* --- TABELA (Inteligente) --- */}
       <div className="rounded-md border">
         <Table>
           <TableHeader>
@@ -300,25 +333,34 @@ export default function CarrosPage() {
               <TableHead>Placa</TableHead>
               <TableHead>Cor</TableHead>
               <TableHead>Cliente (Dono)</TableHead>
-              <TableHead>Ações</TableHead>
+              <TableHead className="text-right">Ações</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {carros.map((carro) => (
+            {carrosParaExibir.length === 0 && (
+               <TableRow>
+                 <TableCell colSpan={5} className="text-center py-8 text-gray-500">
+                   {searchTerm ? "Nenhum veículo encontrado na busca." : "Nenhum veículo cadastrado."}
+                 </TableCell>
+               </TableRow>
+            )}
+            {carrosParaExibir.map((carro) => (
               <TableRow key={carro.id}>
                 <TableCell className="font-medium">{carro.modelo}</TableCell>
-                <TableCell>{carro.placa}</TableCell>
+                <TableCell>
+                  <span className="bg-gray-100 px-2 py-1 rounded font-mono font-bold text-gray-700">
+                    {carro.placa}
+                  </span>
+                </TableCell>
                 <TableCell>{carro.cor || "-"}</TableCell>
                 <TableCell>{carro.nomeCliente}</TableCell>
-                <TableCell>
-                   <Button variant="destructive" size="sm" 
-                      onClick={async () => {
-                        if (confirm("Tem certeza que deseja excluir este veículo?")) {
-                           await deleteDoc(doc(db, "carros", carro.id));
-                        }
-                      }}
+                <TableCell className="text-right">
+                   <Button 
+                      variant="destructive" 
+                      size="sm" 
+                      onClick={() => handleDelete(carro.id)}
                     >
-                      Excluir
+                      <Trash2 className="h-4 w-4" />
                     </Button>
                 </TableCell>
               </TableRow>
@@ -326,6 +368,14 @@ export default function CarrosPage() {
           </TableBody>
         </Table>
       </div>
+      
+      {/* Aviso de Lista Limitada (Aparece só quando não tem busca e tem muitos carros) */}
+      {!searchTerm && carros.length > 30 && (
+        <div className="mt-4 flex items-center justify-center text-sm text-muted-foreground gap-2">
+          <AlertCircle className="h-4 w-4" />
+          <span>Exibindo os 30 veículos mais recentes de um total de {carros.length}. Use a busca acima para encontrar outros.</span>
+        </div>
+      )}
     </div>
   );
 }

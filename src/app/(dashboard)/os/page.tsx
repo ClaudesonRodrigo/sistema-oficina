@@ -11,19 +11,20 @@ import {
   getDocs,
   query,
   where,
-  Query,
   deleteDoc,
   doc,
   addDoc, 
 } from "firebase/firestore";
-// IMPORTANTE: 'auth' é necessário para o Token de Segurança na API Vercel
 import { db, auth } from "@/lib/firebase"; 
 import { cn } from "@/lib/utils";
-import { Check, ChevronsUpDown, Trash2, Search, Plus } from "lucide-react";
+import { Check, ChevronsUpDown, Trash2, Search, Plus, Loader2, AlertCircle } from "lucide-react";
 import Link from "next/link";
-
 import { useAuth } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner"; // UX Melhorada
+
+// --- IMPORTANDO TIPOS CENTRALIZADOS (CÓDIGO LIMPO) ---
+import { Cliente, Produto, Carro, OrdemDeServico } from "@/types";
 
 // --- Importações dos componentes Shadcn ---
 import { Button } from "@/components/ui/button";
@@ -75,44 +76,10 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
-// --- Tipos de Dados (Interfaces) ---
-interface Cliente {
-  id: string;
-  nome: string;
-}
-interface Produto {
-  id: string;
-  nome: string;
-  codigoSku?: string;
-  precoCusto: number; 
-  precoVenda: number;
-  estoqueAtual: number;
-  tipo: "peca" | "servico";
-}
-interface Carro {
-  id: string;
-  modelo: string;
-  placa: string;
-  clienteId: string;
-}
-
-interface OrdemDeServico {
-  id: string;
-  numeroOS: number;
-  dataAbertura: { seconds: number };
-  nomeCliente: string;
-  veiculoPlaca: string; 
-  veiculoModelo?: string;
-  status: "aberta" | "finalizada" | "cancelada";
-  valorTotal: number;
-  ownerId?: string; 
-}
-
 // --- Schemas de Validação ---
 
 const osFormSchema = z.object({
   clienteId: z.string().min(1, "Selecione um cliente."),
-  // Campos ocultos preenchidos automaticamente
   veiculoPlaca: z.string().min(3, "Selecione um veículo."),
   veiculoModelo: z.string().optional(),
   servicosDescricao: z.string().optional(),
@@ -132,14 +99,12 @@ const osFormSchema = z.object({
     .min(1, "Adicione pelo menos um item ou serviço."),
 });
 
-// Schema Cliente Rápido
 const clientFormSchema = z.object({
   nome: z.string().min(3, { message: "O nome deve ter pelo menos 3 caracteres." }),
   telefone: z.string().optional(),
   cpfCnpj: z.string().optional(),
 });
 
-// Schema Veículo Rápido
 const vehicleFormSchema = z.object({
   modelo: z.string().min(2, "Informe o modelo."),
   placa: z.string().min(7, "Placa inválida (min 7)."),
@@ -169,7 +134,7 @@ export default function OsPage() {
   const router = useRouter();
 
   if (authLoading) {
-    return <div className="flex h-screen w-full items-center justify-center">Carregando permissões...</div>;
+    return <div className="flex h-screen w-full items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>;
   }
   if (!userData) { 
     router.push('/login');
@@ -181,25 +146,17 @@ export default function OsPage() {
     if (userData) {
       const isAdmin = userData.role === 'admin';
       
-      // 1. Busca de OS
-      let qOS: Query;
       const osRef = collection(db, "ordensDeServico");
-      
-      if (isAdmin) {
-        qOS = query(osRef); 
-      } else {
-        qOS = query(osRef, where("ownerId", "==", userData.id));
-      }
+      const qOS = isAdmin 
+        ? query(osRef) 
+        : query(osRef, where("ownerId", "==", userData.id));
       
       const unsubOS = onSnapshot(qOS, (snapshot) => {
         setOrdensDeServico(
-          snapshot.docs.map(
-            (doc) => ({ id: doc.id, ...doc.data() } as OrdemDeServico)
-          )
+          snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as OrdemDeServico))
         );
       });
 
-      // 2. Busca de Clientes
       const qClientes = query(collection(db, "clientes"));
       const unsubClientes = onSnapshot(qClientes, (snapshot) => {
         setClientes(
@@ -207,7 +164,6 @@ export default function OsPage() {
         );
       });
       
-      // 3. Busca Produtos
       const unsubProdutos = onSnapshot(collection(db, "produtos"), (snapshot) => {
         setProdutos(
           snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as Produto))
@@ -222,7 +178,7 @@ export default function OsPage() {
     }
   }, [userData]);
 
-  // --- LÓGICA DE FILTRO E ORDENAÇÃO ---
+  // --- LÓGICA DE FILTRO E OTIMIZAÇÃO (30 ITENS) ---
   const ordensFiltradas = ordensDeServico
     .filter((os) => {
       const search = searchTerm.toLowerCase();
@@ -237,14 +193,21 @@ export default function OsPage() {
       );
     })
     .sort((a, b) => {
+        // @ts-ignore
         const dateA = a.dataAbertura?.seconds || 0;
+        // @ts-ignore
         const dateB = b.dataAbertura?.seconds || 0;
-        return dateB - dateA;
+        return dateB - dateA; // Mais recentes primeiro
     }); 
 
+  // SEGREDO DA PERFORMANCE:
+  // Se tem busca, mostra tudo que encontrou.
+  // Se não tem busca, corta nos primeiros 30.
+  const ordensParaExibir = searchTerm 
+    ? ordensFiltradas 
+    : ordensFiltradas.slice(0, 30);
+
   // --- Configuração dos Formulários ---
-  
-  // 1. Form Principal (OS)
   const form = useForm<z.infer<typeof osFormSchema>>({
     resolver: zodResolver(osFormSchema),
     defaultValues: {
@@ -257,13 +220,11 @@ export default function OsPage() {
     },
   });
 
-  // 2. Form Cliente Rápido
   const clientForm = useForm<z.infer<typeof clientFormSchema>>({
     resolver: zodResolver(clientFormSchema),
     defaultValues: { nome: "", telefone: "", cpfCnpj: "" },
   });
 
-  // 3. Form Veículo Rápido
   const vehicleForm = useForm<z.infer<typeof vehicleFormSchema>>({
     resolver: zodResolver(vehicleFormSchema),
     defaultValues: { modelo: "", placa: "", ano: "", cor: "" },
@@ -279,7 +240,6 @@ export default function OsPage() {
 
   useEffect(() => {
     if (clienteIdSelecionado) {
-      // Limpa seleções anteriores
       form.setValue("veiculoPlaca", "");
       form.setValue("veiculoModelo", "");
       setCarroSelecionadoId("");
@@ -302,7 +262,6 @@ export default function OsPage() {
     }
   }, [clienteIdSelecionado, form]);
 
-  // --- Função para selecionar carro ---
   const handleCarroSelecionado = (carroId: string) => {
     setCarroSelecionadoId(carroId);
     const carro = veiculosCliente.find((c) => c.id === carroId);
@@ -313,7 +272,6 @@ export default function OsPage() {
     }
   };
 
-  // --- Função adicionarProduto ---
   const adicionarProduto = (produto: Produto) => {
     const itemIndex = fields.findIndex((field) => field.id === produto.id);
 
@@ -321,9 +279,7 @@ export default function OsPage() {
       const item = fields[itemIndex];
       const novaQtde = item.qtde + 1;
       if (produto.tipo === "peca" && novaQtde > produto.estoqueAtual) {
-        alert(
-          `Estoque máximo (${produto.estoqueAtual}) atingido para ${produto.nome}.`
-        );
+        toast.error(`Estoque máximo (${produto.estoqueAtual}) atingido para ${produto.nome}.`);
         return;
       }
       update(itemIndex, { ...item, qtde: novaQtde });
@@ -339,9 +295,9 @@ export default function OsPage() {
       });
     }
     setIsComboboxOpen(false);
+    toast.success("Item adicionado à OS!");
   };
 
-  // --- Cálculos de Total ---
   const watchedItens = form.watch("itens");
   const valorTotalOS = watchedItens.reduce((total, item) => {
     const quantidade = item.qtde || 0; 
@@ -356,85 +312,63 @@ export default function OsPage() {
     return total;
   }, 0);
 
-
-  // --- FUNÇÃO ON SUBMIT (ATUALIZADA PARA VERCEL) ---
+  // --- SUBMIT ---
   async function onSubmit(values: z.infer<typeof osFormSchema>) {
-    
     if (!userData) {
-      alert("Erro: Usuário não autenticado.");
+      toast.error("Erro: Usuário não autenticado.");
       return;
     }
 
     try {
-      let q: Query;
       const osRef = collection(db, "ordensDeServico");
-      
-      if (userData.role === 'admin') {
-         q = query(
-          osRef,
-          where("clienteId", "==", values.clienteId),
-          where("status", "==", "aberta")
-         );
-      } else {
-         q = query(
-          osRef,
-          where("clienteId", "==", values.clienteId),
-          where("status", "==", "aberta"),
-          where("ownerId", "==", userData.id) 
-         );
-      }
+      const q = userData.role === 'admin'
+        ? query(osRef, where("clienteId", "==", values.clienteId), where("status", "==", "aberta"))
+        : query(osRef, where("clienteId", "==", values.clienteId), where("status", "==", "aberta"), where("ownerId", "==", userData.id));
       
       const querySnapshot = await getDocs(q);
       
       if (!querySnapshot.empty) {
-        alert("Erro: Este cliente já possui uma Ordem de Serviço em aberto.");
+        toast.warning("Este cliente já possui uma Ordem de Serviço em aberto.");
         return; 
       }
-    } catch (error) {
-      console.error("Erro ao verificar OS existente:", error);
-      alert("Erro ao verificar OS existente. Tente novamente.");
-      return;
-    }
 
-    const clienteSelecionado = clientes.find((c) => c.id === values.clienteId);
-    if (!clienteSelecionado) {
-      console.error("Cliente não encontrado");
-      return;
-    }
+      const clienteSelecionado = clientes.find((c) => c.id === values.clienteId);
+      if (!clienteSelecionado) {
+        toast.error("Cliente não encontrado");
+        return;
+      }
 
-    const novaOSParaEnvio = {
-      numeroOS: Math.floor(Math.random() * 10000) + 1,
-      dataAbertura: new Date(), 
-      status: "aberta" as "aberta",
-      clienteId: values.clienteId,
-      nomeCliente: clienteSelecionado.nome,
-      veiculoPlaca: values.veiculoPlaca.toUpperCase(),
-      veiculoModelo: values.veiculoModelo,
-      servicosDescricao: values.servicosDescricao,
-      garantiaDias: values.garantiaDias, 
-      itens: values.itens.map((item) => ({ 
-        id: item.id,
-        nome: item.nome,
-        qtde: item.qtde,
-        precoCusto: item.precoCusto,
-        precoUnitario: item.precoUnitario,
-        tipo: item.tipo,
-      })),
-      valorTotal: valorTotalOS,
-      custoTotal: custoTotalOS,
-      ownerId: userData.id 
-    };
+      const novaOSParaEnvio = {
+        numeroOS: Math.floor(Math.random() * 10000) + 1,
+        dataAbertura: new Date(), 
+        status: "aberta" as "aberta",
+        clienteId: values.clienteId,
+        nomeCliente: clienteSelecionado.nome,
+        veiculoPlaca: values.veiculoPlaca.toUpperCase(),
+        veiculoModelo: values.veiculoModelo,
+        servicosDescricao: values.servicosDescricao,
+        garantiaDias: values.garantiaDias, 
+        itens: values.itens.map((item) => ({ 
+          id: item.id,
+          nome: item.nome,
+          qtde: item.qtde,
+          precoCusto: item.precoCusto,
+          precoUnitario: item.precoUnitario,
+          tipo: item.tipo,
+        })),
+        valorTotal: valorTotalOS,
+        custoTotal: custoTotalOS,
+        ownerId: userData.id 
+      };
 
-    try {
-      // --- CORREÇÃO: Pegar Token de Autenticação ---
+      const toastId = toast.loading("Gerando Ordem de Serviço...");
       const token = await auth.currentUser?.getIdToken();
 
-      // --- CORREÇÃO: Chamar API Vercel (/api/os/create) ---
       const response = await fetch('/api/os/create', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}` // Header de Segurança
+          'Authorization': `Bearer ${token}` 
         },
         body: JSON.stringify({
           novaOS: novaOSParaEnvio, 
@@ -448,19 +382,21 @@ export default function OsPage() {
         throw new Error(result.error || "Erro desconhecido ao salvar OS");
       }
 
-      console.log("OS salva pela Vercel API!", result.message);
+      toast.dismiss(toastId);
+      toast.success(`OS #${novaOSParaEnvio.numeroOS} criada com sucesso!`);
+      
       form.reset();
-      setCarroSelecionadoId(""); // Reset visual select
+      setCarroSelecionadoId(""); 
       setIsModalOpen(false);
-      alert("Ordem de Serviço criada com sucesso!"); // Feedback visual
 
     } catch (error: any) {
+      toast.dismiss();
       console.error("Erro ao criar OS: ", error);
-      alert("Erro ao salvar: " + error.message);
+      toast.error("Erro ao salvar: " + error.message);
     }
   }
 
-  // --- SUBMIT CLIENTE RÁPIDO ---
+  // --- SUBMITS RÁPIDOS ---
   async function onClientSubmit(values: z.infer<typeof clientFormSchema>) {
     if (!userData) return;
     try {
@@ -468,15 +404,20 @@ export default function OsPage() {
       setIsClientModalOpen(false);
       clientForm.reset();
       form.setValue("clienteId", docRef.id);
-      alert("Cliente cadastrado e selecionado!");
-    } catch (error) { console.error(error); alert("Erro ao cadastrar."); }
+      toast.success("Cliente cadastrado e selecionado!");
+    } catch (error) { 
+      console.error(error); 
+      toast.error("Erro ao cadastrar cliente."); 
+    }
   }
 
-  // --- SUBMIT VEÍCULO RÁPIDO ---
   async function onVehicleSubmit(values: z.infer<typeof vehicleFormSchema>) {
     if (!userData) return;
     const clienteIdAtual = form.getValues("clienteId");
-    if (!clienteIdAtual) { alert("Selecione um cliente antes."); return; }
+    if (!clienteIdAtual) { 
+      toast.warning("Selecione um cliente antes."); 
+      return; 
+    }
     
     const clienteObj = clientes.find(c => c.id === clienteIdAtual);
 
@@ -492,14 +433,28 @@ export default function OsPage() {
       setIsVehicleModalOpen(false);
       vehicleForm.reset();
       
-      // Auto-seleciona
       setCarroSelecionadoId(docRef.id);
       form.setValue("veiculoPlaca", values.placa.toUpperCase());
       form.setValue("veiculoModelo", values.modelo);
       form.clearErrors("veiculoPlaca");
 
-      alert("Veículo cadastrado e selecionado!");
-    } catch (error) { console.error(error); alert("Erro ao cadastrar."); }
+      toast.success("Veículo cadastrado e selecionado!");
+    } catch (error) { 
+      console.error(error); 
+      toast.error("Erro ao cadastrar veículo."); 
+    }
+  }
+
+  const handleDeleteOS = async (os: OrdemDeServico) => {
+    if (confirm(`Tem certeza que deseja excluir a OS #${os.numeroOS}?`)) {
+       try {
+          await deleteDoc(doc(db, "ordensDeServico", os.id));
+          toast.success("OS excluída com sucesso!");
+       } catch (error) {
+          console.error("Erro ao excluir:", error);
+          toast.error("Erro ao excluir OS.");
+       }
+    }
   }
 
   return (
@@ -520,10 +475,7 @@ export default function OsPage() {
             <Form {...form}>
               <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
                 
-                {/* --- LINHA 1: CLIENTE E VEÍCULO (NOVA LÓGICA) --- */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  
-                  {/* CLIENTE */}
                   <FormField
                     control={form.control}
                     name="clienteId"
@@ -544,7 +496,6 @@ export default function OsPage() {
                     )}
                   />
 
-                  {/* VEÍCULO (Aparece se cliente selecionado) */}
                   {clienteIdSelecionado && (
                      <FormItem>
                         <FormLabel>Veículo</FormLabel>
@@ -570,7 +521,6 @@ export default function OsPage() {
                   )}
                 </div>
 
-                {/* --- LINHA 2: OBSERVAÇÕES E GARANTIA --- */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <FormField
                     control={form.control}
@@ -603,7 +553,6 @@ export default function OsPage() {
                   />
                 </div>
 
-                {/* --- SEÇÃO ADICIONAR ITENS --- */}
                 <div>
                   <FormLabel>Adicionar Peças e Serviços</FormLabel>
                   <Popover open={isComboboxOpen} onOpenChange={setIsComboboxOpen}>
@@ -622,7 +571,7 @@ export default function OsPage() {
                             {produtos.map((produto) => (
                               <CommandItem
                                 key={produto.id}
-                                value={`${produto.nome} ${produto.codigoSku || ''}`} // BUSCA POR NOME E CODIGO
+                                value={`${produto.nome} ${produto.codigoSku || ''}`}
                                 onSelect={() => { adicionarProduto(produto); }}
                               >
                                 <Check
@@ -644,7 +593,6 @@ export default function OsPage() {
                   <FormMessage>{form.formState.errors.itens?.message}</FormMessage>
                 </div>
 
-                {/* --- TABELA DE ITENS --- */}
                 <div className="rounded-md border">
                   <Table>
                     <TableHeader>
@@ -704,7 +652,6 @@ export default function OsPage() {
                   </Table>
                 </div>
                 
-                {/* --- TOTAIS E BOTÃO --- */}
                 <div className="flex justify-between items-center">
                   <h2 className="text-lg font-medium text-gray-600">
                     Custo Peças: R$ {custoTotalOS.toFixed(2)}
@@ -862,14 +809,14 @@ export default function OsPage() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {ordensFiltradas.length === 0 && (
+            {ordensParaExibir.length === 0 && (
               <TableRow>
                 <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
-                  Nenhuma OS encontrada.
+                  {searchTerm ? "Nenhuma OS encontrada na busca." : "Nenhuma OS cadastrada."}
                 </TableCell>
               </TableRow>
             )}
-            {ordensFiltradas.map((os) => (
+            {ordensParaExibir.map((os) => (
               <TableRow key={os.id}>
                 <TableCell>
                   <Link
@@ -880,9 +827,11 @@ export default function OsPage() {
                   </Link>
                 </TableCell>
                 <TableCell className="font-medium">{os.nomeCliente}</TableCell>
-                <TableCell>{os.veiculoPlaca}</TableCell> {/* CORRIGIDO: usando veiculoPlaca */}
+                <TableCell>{os.veiculoPlaca}</TableCell>
                 <TableCell>
+                  {/* @ts-ignore */}
                   {os.dataAbertura && os.dataAbertura.seconds
+                    // @ts-ignore
                     ? new Date(os.dataAbertura.seconds * 1000).toLocaleDateString()
                     : "Data Inválida"}
                 </TableCell>
@@ -893,24 +842,12 @@ export default function OsPage() {
                     <Link href={`/os/${os.id}`}>Ver Detalhes</Link>
                   </Button>
                   
-                  {/* ATUALIZAÇÃO: Botão de Excluir para Admin */}
                   {userData?.role === 'admin' && (
                     <Button 
                       variant="destructive" 
                       size="sm" 
                       className="ml-2"
-                      onClick={async () => {
-                        const confirmacao = confirm(`Tem certeza que deseja excluir a OS #${os.numeroOS}?`);
-                        if (confirmacao) {
-                          try {
-                             await deleteDoc(doc(db, "ordensDeServico", os.id));
-                             alert("OS excluída com sucesso!");
-                          } catch (error) {
-                             console.error("Erro ao excluir:", error);
-                             alert("Erro ao excluir OS.");
-                          }
-                        }
-                      }}
+                      onClick={() => handleDeleteOS(os)}
                     >
                       <Trash2 className="h-4 w-4" />
                     </Button>
@@ -921,6 +858,14 @@ export default function OsPage() {
           </TableBody>
         </Table>
       </div>
+
+      {/* Aviso de Lista Limitada */}
+      {!searchTerm && ordensDeServico.length > 30 && (
+        <div className="mt-4 flex items-center justify-center text-sm text-muted-foreground gap-2">
+          <AlertCircle className="h-4 w-4" />
+          <span>Exibindo as 30 últimas ordens de serviço. Use a busca para encontrar antigas.</span>
+        </div>
+      )}
     </div>
   );
 }
