@@ -4,6 +4,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import Image from "next/image"; // <--- Importante para a Logo
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/context/AuthContext";
 import { 
@@ -22,7 +23,7 @@ import {
   Truck,
   ArrowDownToLine,
   TrendingDown,
-  ShoppingCart // <--- Ícone do PDV
+  ShoppingCart
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -55,15 +56,13 @@ export default function MainLayout({ children }: MainLayoutProps) {
       icon: ClipboardList,
       roles: ["admin", "operador"],
     },
-    // --- NOVO BOTÃO PDV ---
     {
       href: "/pdv",
       label: "PDV (Venda Rápida)",
       icon: ShoppingCart,
-      roles: ["admin", "operador"], // Todo mundo pode vender
-      highlight: true // Destaque visual (opcional na lógica abaixo)
+      roles: ["admin", "operador"],
+      highlight: true
     },
-    // ----------------------
     {
       href: "/clientes",
       label: "Clientes",
@@ -98,7 +97,7 @@ export default function MainLayout({ children }: MainLayoutProps) {
       href: "/caixa",
       label: "Financeiro / Caixa",
       icon: DollarSign,
-      roles: ["admin", "operador"], // Você pode restringir se quiser
+      roles: ["admin", "operador"], 
     },
     {
       href: "/despesas",
@@ -110,13 +109,13 @@ export default function MainLayout({ children }: MainLayoutProps) {
       href: "/relatorios",
       label: "Relatórios",
       icon: BarChart3,
-      roles: ["admin"], // Apenas Admin vê relatórios completos
+      roles: ["admin"], 
     },
     {
       href: "/usuarios",
       label: "Usuários",
       icon: UserCog,
-      roles: ["admin"], // Apenas Admin gerencia usuários
+      roles: ["admin"], 
     },
   ];
 
@@ -130,8 +129,17 @@ export default function MainLayout({ children }: MainLayoutProps) {
       
       {/* Sidebar Desktop */}
       <aside className="hidden md:flex flex-col w-64 bg-slate-900 text-white h-full">
+        {/* ÁREA DA LOGO */}
         <div className="p-6 flex items-center justify-center border-b border-slate-700">
-          <h1 className="text-2xl font-bold text-blue-400">Oficina System</h1>
+          <div className="relative w-40 h-16">
+             <Image 
+               src="/logo.png" 
+               alt="Rodrigo Skap" 
+               fill 
+               className="object-contain"
+               priority
+             />
+          </div>
         </div>
         
         <nav className="flex-1 overflow-y-auto py-4">
@@ -140,6 +148,7 @@ export default function MainLayout({ children }: MainLayoutProps) {
               const Icon = item.icon;
               const isActive = pathname === item.href;
               // Se for PDV, dá um destaque extra
+              // @ts-ignore
               const isPdv = item.href === "/pdv";
               
               return (
@@ -151,7 +160,7 @@ export default function MainLayout({ children }: MainLayoutProps) {
                       isActive 
                         ? "bg-blue-600 text-white shadow-lg" 
                         : "text-slate-300 hover:bg-slate-800 hover:text-white",
-                      isPdv && !isActive && "text-green-400 hover:bg-green-900/20" // Destaque verde para o PDV quando não ativo
+                      isPdv && !isActive && "text-green-400 hover:bg-green-900/20" 
                     )}
                   >
                     <Icon className={cn("h-5 w-5", isPdv && "text-green-400", isActive && "text-white")} />
@@ -181,7 +190,8 @@ export default function MainLayout({ children }: MainLayoutProps) {
       {/* Menu Mobile (Overlay) */}
       <div className="md:hidden flex flex-col flex-1">
         <header className="bg-slate-900 text-white p-4 flex justify-between items-center shadow-md">
-          <h1 className="text-xl font-bold text-blue-400">Oficina System</h1>
+          {/* Nome no Mobile (Pode ser Logo também se preferir, mas texto economiza espaço) */}
+          <h1 className="text-xl font-bold text-blue-400">Rodrigo Skap</h1>
           <Button variant="ghost" size="icon" onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}>
             {isMobileMenuOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
           </Button>
