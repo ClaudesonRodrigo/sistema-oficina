@@ -18,7 +18,15 @@ import { useAuth } from "@/context/AuthContext";
 // Importando date-fns para garantir datas corretas
 import { startOfDay, endOfDay } from "date-fns";
 import { toast } from "sonner"; // Feedback visual
-import { Loader2, Search, Package, Wrench, DollarSign, TrendingDown, TrendingUp } from "lucide-react";
+import {
+  Loader2,
+  Search,
+  Package,
+  Wrench,
+  DollarSign,
+  TrendingDown,
+  TrendingUp,
+} from "lucide-react";
 
 import AlertaEstoque from "@/components/AlertaEstoque";
 import DashboardCharts from "@/components/DashboardCharts";
@@ -63,10 +71,18 @@ const produtoSearchSchema = z.object({
   codigoSku: z.string().min(1, { message: "Digite o código do produto." }),
 });
 
+// --- FUNÇÃO UTILITÁRIA DE FORMATAÇÃO (BRL) ---
+const formatCurrency = (value: number) => {
+  return new Intl.NumberFormat("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+  }).format(value);
+};
+
 export default function HomePage() {
   const { userData, loading: authLoading } = useAuth();
-  const isAdmin = userData?.role === 'admin';
-  
+  const isAdmin = userData?.role === "admin";
+
   const [resumoCaixa, setResumoCaixa] = useState<ResumoCaixa>({
     faturamentoBruto: 0,
     custoPecas: 0,
@@ -90,13 +106,13 @@ export default function HomePage() {
   useEffect(() => {
     if (isAdmin && userData) {
       setLoadingCaixa(true);
-      
+
       const hoje = new Date();
       const inicioDoDia = startOfDay(hoje);
       const fimDoDia = endOfDay(hoje);
 
       const movRef = collection(db, "movimentacoes");
-      
+
       const q = query(
         movRef,
         where("data", ">=", inicioDoDia),
@@ -117,7 +133,7 @@ export default function HomePage() {
 
           if (data.tipo === "entrada") {
             faturamentoBruto += valor;
-            custoPecas += custo; 
+            custoPecas += custo;
           } else if (data.tipo === "saida") {
             saidas += valor;
           }
@@ -128,13 +144,13 @@ export default function HomePage() {
           custoPecas,
           lucroBruto: faturamentoBruto - custoPecas,
           saidas,
-          lucroLiquido: (faturamentoBruto - custoPecas) - saidas,
+          lucroLiquido: faturamentoBruto - custoPecas - saidas,
         });
         setLoadingCaixa(false);
       });
       return () => unsub();
     } else {
-      setLoadingCaixa(false); 
+      setLoadingCaixa(false);
     }
   }, [isAdmin, userData]);
 
@@ -143,7 +159,7 @@ export default function HomePage() {
     resolver: zodResolver(placaSearchSchema),
     defaultValues: { placa: "" },
   });
-  
+
   const formBuscaProduto = useForm<z.infer<typeof produtoSearchSchema>>({
     resolver: zodResolver(produtoSearchSchema),
     defaultValues: { codigoSku: "" },
@@ -154,18 +170,18 @@ export default function HomePage() {
     setLoadingPlaca(true);
     setSearchedPlaca(true);
     setResultadosPlaca([]);
-    
+
     try {
       const osRef = collection(db, "ordensDeServico");
-      
+
       // 1. Tratamento da Placa (Gera variações para garantir que encontra)
       const inputRaw = values.placa.toUpperCase().trim();
       const placaLimpa = inputRaw.replace(/[^A-Z0-9]/g, ""); // Ex: ABC1234
-      
+
       // Tenta criar formato com traço se tiver 7 chars (padrão antigo/mercosul)
       let placaComTraco = inputRaw;
       if (placaLimpa.length === 7) {
-         placaComTraco = `${placaLimpa.substring(0,3)}-${placaLimpa.substring(3)}`; // Ex: ABC-1234
+        placaComTraco = `${placaLimpa.substring(0, 3)}-${placaLimpa.substring(3)}`; // Ex: ABC-1234
       }
 
       // 2. Busca usando 'in' para pegar qualquer um dos formatos
@@ -174,10 +190,10 @@ export default function HomePage() {
         osRef,
         where("veiculoPlaca", "in", [placaLimpa, placaComTraco, inputRaw])
       );
-      
+
       const querySnapshot = await getDocs(q);
       const listaResultados: OrdemDeServico[] = [];
-      
+
       querySnapshot.forEach((doc) => {
         listaResultados.push({ id: doc.id, ...doc.data() } as OrdemDeServico);
       });
@@ -237,30 +253,48 @@ export default function HomePage() {
 
   // --- Função de Garantia ---
   const getGarantiaStatus = (os: OrdemDeServico) => {
-    if (os.status !== 'finalizada' || !os.dataFechamento) {
-      return <span className="text-gray-500 font-medium capitalize">{os.status}</span>;
+    if (os.status !== "finalizada" || !os.dataFechamento) {
+      return (
+        <span className="text-gray-500 font-medium capitalize">
+          {os.status}
+        </span>
+      );
     }
     if (!os.garantiaDias || os.garantiaDias === 0) {
       return <span className="text-gray-500 font-medium">Sem Garantia</span>;
     }
-    
+
     // @ts-ignore - Tratamento seguro do timestamp
     const dataFechamento = new Date(os.dataFechamento.seconds * 1000);
     const dataExpiracao = new Date(dataFechamento);
     dataExpiracao.setDate(dataExpiracao.getDate() + os.garantiaDias);
-    
+
     const hoje = new Date();
-    
+
     if (hoje > dataExpiracao) {
-      return <span className="font-bold text-red-600 bg-red-100 px-2 py-1 rounded">Expirada</span>;
+      return (
+        <span className="font-bold text-red-600 bg-red-100 px-2 py-1 rounded">
+          Expirada
+        </span>
+      );
     } else {
-      const diasRestantes = Math.ceil((dataExpiracao.getTime() - hoje.getTime()) / (1000 * 60 * 60 * 24));
-      return <span className="font-bold text-green-600 bg-green-100 px-2 py-1 rounded">Vigente ({diasRestantes} dias)</span>;
+      const diasRestantes = Math.ceil(
+        (dataExpiracao.getTime() - hoje.getTime()) / (1000 * 60 * 60 * 24)
+      );
+      return (
+        <span className="font-bold text-green-600 bg-green-100 px-2 py-1 rounded">
+          Vigente ({diasRestantes} dias)
+        </span>
+      );
     }
   };
 
   if (authLoading) {
-    return <div className="flex h-screen items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-primary"/></div>;
+    return (
+      <div className="flex h-screen items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
   }
 
   return (
@@ -272,7 +306,7 @@ export default function HomePage() {
       {isAdmin && (
         <div className="mb-8">
           <h1 className="text-3xl md:text-4xl font-bold mb-6">Resumo do Dia</h1>
-          
+
           <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4">
             {/* Cards de Resumo Financeiro */}
             <Card>
@@ -281,23 +315,27 @@ export default function HomePage() {
                 <DollarSign className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                {loadingCaixa ? <p className="text-xs">Carregando...</p> : (
+                {loadingCaixa ? (
+                  <p className="text-xs">Carregando...</p>
+                ) : (
                   <div className="text-2xl font-bold text-blue-600">
-                    R$ {resumoCaixa.faturamentoBruto.toFixed(2)}
+                    {formatCurrency(resumoCaixa.faturamentoBruto)}
                   </div>
                 )}
               </CardContent>
             </Card>
-            
+
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium">Custo Peças</CardTitle>
                 <Package className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                {loadingCaixa ? <p className="text-xs">Carregando...</p> : (
+                {loadingCaixa ? (
+                  <p className="text-xs">Carregando...</p>
+                ) : (
                   <div className="text-2xl font-bold text-gray-500">
-                    R$ {resumoCaixa.custoPecas.toFixed(2)}
+                    {formatCurrency(resumoCaixa.custoPecas)}
                   </div>
                 )}
               </CardContent>
@@ -309,9 +347,11 @@ export default function HomePage() {
                 <TrendingUp className="h-4 w-4 text-green-600" />
               </CardHeader>
               <CardContent>
-                {loadingCaixa ? <p className="text-xs">Carregando...</p> : (
+                {loadingCaixa ? (
+                  <p className="text-xs">Carregando...</p>
+                ) : (
                   <div className="text-2xl font-bold text-green-600">
-                    R$ {resumoCaixa.lucroBruto.toFixed(2)}
+                    {formatCurrency(resumoCaixa.lucroBruto)}
                   </div>
                 )}
               </CardContent>
@@ -323,9 +363,11 @@ export default function HomePage() {
                 <TrendingDown className="h-4 w-4 text-red-600" />
               </CardHeader>
               <CardContent>
-                {loadingCaixa ? <p className="text-xs">Carregando...</p> : (
+                {loadingCaixa ? (
+                  <p className="text-xs">Carregando...</p>
+                ) : (
                   <div className="text-2xl font-bold text-red-600">
-                    R$ {resumoCaixa.saidas.toFixed(2)}
+                    {formatCurrency(resumoCaixa.saidas)}
                   </div>
                 )}
               </CardContent>
@@ -337,9 +379,17 @@ export default function HomePage() {
                 <DollarSign className="h-4 w-4 text-slate-900" />
               </CardHeader>
               <CardContent>
-                {loadingCaixa ? <p className="text-xs">Carregando...</p> : (
-                  <div className={`text-2xl font-bold ${resumoCaixa.lucroLiquido >= 0 ? 'text-slate-900' : 'text-red-600'}`}>
-                    R$ {resumoCaixa.lucroLiquido.toFixed(2)}
+                {loadingCaixa ? (
+                  <p className="text-xs">Carregando...</p>
+                ) : (
+                  <div
+                    className={`text-2xl font-bold ${
+                      resumoCaixa.lucroLiquido >= 0
+                        ? "text-slate-900"
+                        : "text-red-600"
+                    }`}
+                  >
+                    {formatCurrency(resumoCaixa.lucroLiquido)}
                   </div>
                 )}
               </CardContent>
@@ -347,7 +397,7 @@ export default function HomePage() {
           </div>
 
           <div className="mt-6">
-             <DashboardCharts />
+            <DashboardCharts />
           </div>
         </div>
       )}
@@ -359,7 +409,10 @@ export default function HomePage() {
             <Package className="h-8 w-8" /> Consulta Rápida de Produto
           </h1>
           <Form {...formBuscaProduto}>
-            <form onSubmit={formBuscaProduto.handleSubmit(onProdutoSubmit)} className="flex flex-col md:flex-row gap-4 mb-6">
+            <form
+              onSubmit={formBuscaProduto.handleSubmit(onProdutoSubmit)}
+              className="flex flex-col md:flex-row gap-4 mb-6"
+            >
               <FormField
                 control={formBuscaProduto.control}
                 name="codigoSku"
@@ -380,35 +433,53 @@ export default function HomePage() {
                   </FormItem>
                 )}
               />
-              <Button type="submit" disabled={loadingProduto} className="h-12 px-8 text-lg">
-                {loadingProduto ? <Loader2 className="animate-spin" /> : "Buscar"}
+              <Button
+                type="submit"
+                disabled={loadingProduto}
+                className="h-12 px-8 text-lg"
+              >
+                {loadingProduto ? (
+                  <Loader2 className="animate-spin" />
+                ) : (
+                  "Buscar"
+                )}
               </Button>
             </form>
           </Form>
 
           {!loadingProduto && searchedProduto && !produtoResultado && (
-            <p className="text-muted-foreground text-center py-4">Nenhum produto encontrado com este SKU.</p>
+            <p className="text-muted-foreground text-center py-4">
+              Nenhum produto encontrado com este SKU.
+            </p>
           )}
-          
+
           {!loadingProduto && produtoResultado && (
             <Card className="border-l-4 border-l-blue-500 bg-blue-50/50">
               <CardHeader>
                 <CardTitle className="flex justify-between items-center">
                   <span>{produtoResultado.nome}</span>
-                  <span className="text-sm font-normal text-muted-foreground">SKU: {produtoResultado.codigoSku}</span>
+                  <span className="text-sm font-normal text-muted-foreground">
+                    SKU: {produtoResultado.codigoSku}
+                  </span>
                 </CardTitle>
               </CardHeader>
               <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-8">
                 <div>
-                  <p className="text-sm text-muted-foreground uppercase font-bold">Estoque Atual</p>
+                  <p className="text-sm text-muted-foreground uppercase font-bold">
+                    Estoque Atual
+                  </p>
                   <p className="text-4xl font-bold text-slate-800">
-                    {produtoResultado.tipo === 'peca' ? produtoResultado.estoqueAtual : '∞'}
+                    {produtoResultado.tipo === "peca"
+                      ? produtoResultado.estoqueAtual
+                      : "∞"}
                   </p>
                 </div>
-                 <div>
-                  <p className="text-sm text-muted-foreground uppercase font-bold">Preço de Venda</p>
+                <div>
+                  <p className="text-sm text-muted-foreground uppercase font-bold">
+                    Preço de Venda
+                  </p>
                   <p className="text-4xl font-bold text-green-600">
-                    R$ {produtoResultado.precoVenda.toFixed(2)}
+                    {formatCurrency(produtoResultado.precoVenda)}
                   </p>
                 </div>
               </CardContent>
@@ -423,11 +494,15 @@ export default function HomePage() {
           <Wrench className="h-8 w-8" /> Consulta de Garantia / Histórico
         </h1>
         <p className="text-muted-foreground mb-4">
-          Digite a placa do veículo para ver todas as manutenções e status da garantia.
+          Digite a placa do veículo para ver todas as manutenções e status da
+          garantia.
         </p>
 
         <Form {...formBuscaPlaca}>
-          <form onSubmit={formBuscaPlaca.handleSubmit(onPlacaSubmit)} className="flex flex-col md:flex-row gap-4 mb-8">
+          <form
+            onSubmit={formBuscaPlaca.handleSubmit(onPlacaSubmit)}
+            className="flex flex-col md:flex-row gap-4 mb-8"
+          >
             <FormField
               control={formBuscaPlaca.control}
               name="placa"
@@ -448,15 +523,25 @@ export default function HomePage() {
                 </FormItem>
               )}
             />
-            <Button type="submit" disabled={loadingPlaca} className="h-12 px-8 text-lg">
-              {loadingPlaca ? <Loader2 className="animate-spin" /> : "Consultar Placa"}
+            <Button
+              type="submit"
+              disabled={loadingPlaca}
+              className="h-12 px-8 text-lg"
+            >
+              {loadingPlaca ? (
+                <Loader2 className="animate-spin" />
+              ) : (
+                "Consultar Placa"
+              )}
             </Button>
           </form>
         </Form>
 
         {!loadingPlaca && searchedPlaca && resultadosPlaca.length === 0 && (
           <div className="text-center py-8 bg-gray-50 rounded-lg border border-dashed">
-            <p className="text-lg text-gray-500">Nenhum serviço encontrado para esta placa.</p>
+            <p className="text-lg text-gray-500">
+              Nenhum serviço encontrado para esta placa.
+            </p>
           </div>
         )}
 
@@ -492,14 +577,20 @@ export default function HomePage() {
                       <TableCell>
                         {/* @ts-ignore */}
                         {os.dataFechamento
-                          // @ts-ignore
-                          ? new Date(os.dataFechamento.seconds * 1000).toLocaleDateString()
-                          // @ts-ignore
-                          : new Date(os.dataAbertura.seconds * 1000).toLocaleDateString()}
+                          ? // @ts-ignore
+                            new Date(
+                              os.dataFechamento.seconds * 1000
+                            ).toLocaleDateString()
+                          : // @ts-ignore
+                            new Date(
+                              os.dataAbertura.seconds * 1000
+                            ).toLocaleDateString()}
                       </TableCell>
                       <TableCell>{getGarantiaStatus(os)}</TableCell>
                       <TableCell>{os.nomeCliente}</TableCell>
-                      <TableCell className="font-mono">R$ {os.valorTotal.toFixed(2)}</TableCell>
+                      <TableCell className="font-mono">
+                        {formatCurrency(os.valorTotal)}
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
