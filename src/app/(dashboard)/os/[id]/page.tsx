@@ -123,8 +123,8 @@ export default function DetalhesOSPage() {
               </div>
               <div>
                 <h1 className="text-2xl font-bold uppercase">Rodrigo Skap</h1>
-                <p className="text-sm text-gray-500">Oficina Especializada em Escapamentos</p>
-                <p className="text-sm text-gray-500">Tel: (79) 99633-7995</p>
+                <p className="text-sm text-gray-500">Loja Especializada em Escapamentos</p>
+                <p className="text-sm text-gray-500">Tel: (79) 99837-1104</p>
                 <p className="text-sm text-gray-500">Aracaju - SE</p>
               </div>
             </div>
