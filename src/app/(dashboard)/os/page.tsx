@@ -306,19 +306,28 @@ export default function OsPage() {
 
       const toastId = toast.loading("Criando OS...");
       const token = await auth.currentUser?.getIdToken();
-      const response = await fetch('/api/os/create', {
+     const response = await fetch('/api/os/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({ novaOS, itens: values.itens }),
       });
 
-      if (!response.ok) throw new Error("Erro na API");
+      if (!response.ok) {
+        // Tenta ler a mensagem de erro exata que veio do backend (ex: "Estoque insuficiente...")
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Erro desconhecido na API");
+      }
       
       toast.dismiss(toastId);
       toast.success("OS Criada com Sucesso!");
       form.reset(); setCarroSelecionadoId(""); setIsModalOpen(false);
 
-    } catch (error) { toast.dismiss(); console.error(error); toast.error("Erro ao salvar OS."); }
+    } catch (error: any) { 
+      toast.dismiss(); 
+      console.error(error); 
+      // Agora o Toast mostra a mensagem inteligente do backend!
+      toast.error(error.message || "Erro ao salvar OS."); 
+    }
   }
 
   // --- SUBMITS MODAIS ---
