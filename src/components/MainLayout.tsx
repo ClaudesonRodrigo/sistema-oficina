@@ -4,7 +4,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import Image from "next/image"; // <--- Importante para a Logo
+import Image from "next/image"; 
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/context/AuthContext";
 import { 
@@ -23,7 +23,8 @@ import {
   Truck,
   ArrowDownToLine,
   TrendingDown,
-  ShoppingCart
+  ShoppingCart,
+  Receipt // <--- Ícone adicionado para o Histórico de Vendas
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -62,6 +63,12 @@ export default function MainLayout({ children }: MainLayoutProps) {
       icon: ShoppingCart,
       roles: ["admin", "operador"],
       highlight: true
+    },
+    {
+      href: "/vendas", // <--- NOVO ITEM ADICIONADO AQUI
+      label: "Histórico de Vendas",
+      icon: Receipt,
+      roles: ["admin", "operador"],
     },
     {
       href: "/clientes",

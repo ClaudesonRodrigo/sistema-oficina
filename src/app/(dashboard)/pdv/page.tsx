@@ -16,12 +16,14 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 
+// --- CORREÇÃO 1: Adicionado o tipo na interface ---
 interface Produto {
   id: string;
   nome: string;
   codigoSku?: string;
   precoVenda: number;
   estoqueAtual: number;
+  tipo?: "peca" | "servico"; 
 }
 
 interface ItemCarrinho extends Produto {
@@ -80,7 +82,8 @@ export default function PdvPage() {
     const itemNoCarrinho = carrinho.find(i => i.id === produto.id);
     const qtdeAtual = itemNoCarrinho ? itemNoCarrinho.qtde : 0;
 
-    if (qtdeAtual + 1 > produto.estoqueAtual) {
+    // --- CORREÇÃO 2: Só bloqueia estoque se for PEÇA ---
+    if (produto.tipo !== "servico" && qtdeAtual + 1 > produto.estoqueAtual) {
       toast.error(`Estoque insuficiente! Restam apenas ${produto.estoqueAtual} unid.`);
       return;
     }
@@ -176,14 +179,12 @@ export default function PdvPage() {
   const handlePrint = () => {
     if (!ultimaVenda) return;
 
-    // Abre uma janela invisível/pequena
     const janelaImpressao = window.open('', '_blank', 'width=400,height=600');
     if (!janelaImpressao) {
       toast.error("O navegador bloqueou a impressão. Permita os pop-ups!");
       return;
     }
 
-    // Monta as linhas da tabela
     const linhasItens = ultimaVenda.itens.map(item => `
       <tr>
         <td style="padding-bottom: 4px;">${item.qtde}x ${item.nome}</td>
@@ -192,7 +193,6 @@ export default function PdvPage() {
       </tr>
     `).join('');
 
-    // Injeta o HTML puro do recibo térmico
     janelaImpressao.document.write(`
       <html>
         <head>
@@ -203,7 +203,7 @@ export default function PdvPage() {
               font-family: monospace; 
               margin: 0; 
               padding: 10px; 
-              width: 80mm; /* Tamanho padrão de bobina térmica */
+              width: 80mm; 
               font-size: 12px; 
               color: #000; 
             }
@@ -264,11 +264,10 @@ export default function PdvPage() {
     janelaImpressao.document.close();
     janelaImpressao.focus();
 
-    // Dá um tempinho para o navegador renderizar as fontes e manda imprimir
     setTimeout(() => {
       janelaImpressao.print();
-      janelaImpressao.close(); // Fecha a janela fantasma
-      fecharModalNovaVenda(); // Limpa o PDV para o próximo cliente
+      janelaImpressao.close(); 
+      fecharModalNovaVenda(); 
     }, 500);
   };
 
@@ -318,11 +317,15 @@ export default function PdvPage() {
                     >
                       <div>
                         <p className="font-bold text-lg">{p.nome}</p>
-                        <p className="text-sm text-gray-500">SKU: {p.codigoSku || "S/N"}</p>
+                        <p className="text-sm text-gray-500">
+                          {p.tipo === 'servico' ? "Serviço" : `SKU: ${p.codigoSku || "S/N"}`}
+                        </p>
                       </div>
                       <div className="flex flex-col items-end">
                         <span className="text-green-600 font-bold text-lg">{formatCurrency(p.precoVenda)}</span>
-                        <span className="text-gray-500 text-sm">Estoque: {p.estoqueAtual}</span>
+                        <span className="text-gray-500 text-sm">
+                          {p.tipo === 'servico' ? "Ilimitado" : `Estoque: ${p.estoqueAtual}`}
+                        </span>
                       </div>
                     </div>
                   ))}
@@ -336,7 +339,7 @@ export default function PdvPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Produto</TableHead>
+                  <TableHead>Produto/Serviço</TableHead>
                   <TableHead className="w-[100px]">Qtd</TableHead>
                   <TableHead className="text-right">Total</TableHead>
                   <TableHead className="w-[50px]"></TableHead>
@@ -357,7 +360,8 @@ export default function PdvPage() {
                         onChange={(e) => {
                           const novaQtde = parseInt(e.target.value);
                           if (novaQtde > 0) {
-                            if(novaQtde > item.estoqueAtual) {
+                            // --- CORREÇÃO 3: Só bloqueia se for PEÇA ---
+                            if(item.tipo !== "servico" && novaQtde > item.estoqueAtual) {
                               toast.error(`Máximo disponível: ${item.estoqueAtual}`);
                               return;
                             }
