@@ -91,10 +91,20 @@ const formatCurrency = (value: number) => {
 };
 
 export default function OsPage() {
+  // Auth
+  const { userData, loading: authLoading } = useAuth();
+  const router = useRouter();
+  
+  const isAdmin = userData?.role === 'admin';
+
   // --- ESTADOS ---
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isClientModalOpen, setIsClientModalOpen] = useState(false);
   const [isVehicleModalOpen, setIsVehicleModalOpen] = useState(false);
+
+  // Estados de Combobox (Lupa de pesquisa)
+  const [isComboboxOpen, setIsComboboxOpen] = useState(false); // Para Produtos/Serviços
+  const [isClienteOpen, setIsClienteOpen] = useState(false);   // NOVO: Para Clientes
 
   // Dados Principais
   const [ordensDeServico, setOrdensDeServico] = useState<OrdemDeServico[]>([]);
@@ -103,15 +113,10 @@ export default function OsPage() {
   const [veiculosCliente, setVeiculosCliente] = useState<Carro[]>([]);
   
   // Controles de Busca e UI
-  const [isComboboxOpen, setIsComboboxOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState(""); 
   const [isSearching, setIsSearching] = useState(false); 
   const [carroSelecionadoId, setCarroSelecionadoId] = useState<string>(""); 
 
-  // Auth
-  const { userData, loading: authLoading } = useAuth();
-  const router = useRouter();
-  const isAdmin = userData?.role === 'admin';
   // --- FORMULÁRIOS ---
   const form = useForm<z.infer<typeof osFormSchema>>({
     resolver: zodResolver(osFormSchema),
@@ -135,7 +140,7 @@ export default function OsPage() {
       const osRef = collection(db, "ordensDeServico");
       let qOS;
       
-      if (userData.role === 'admin') {
+      if (isAdmin) {
         qOS = query(osRef, orderBy("dataAbertura", "desc"), limit(30));
       } else {
         qOS = query(osRef, where("ownerId", "==", userData.id), orderBy("dataAbertura", "desc"), limit(30));
@@ -153,7 +158,7 @@ export default function OsPage() {
       unsubProdutos();
       unsubOS();
     };
-  }, [userData, isSearching]); 
+  }, [userData, isSearching, isAdmin]); 
 
 
   // --- FUNÇÃO DE BUSCA CIRÚRGICA ---
@@ -177,13 +182,13 @@ export default function OsPage() {
       // 1. Busca por Número
       if (!isNaN(Number(term))) {
         let qNum = query(osRef, where("numeroOS", "==", Number(term)));
-        if (userData.role !== 'admin') qNum = query(qNum, where("ownerId", "==", userData.id));
+        if (!isAdmin) qNum = query(qNum, where("ownerId", "==", userData.id));
         promises.push(getDocs(qNum));
       }
 
       // 2. Busca por Placa
       let qPlaca = query(osRef, where("veiculoPlaca", ">=", term), where("veiculoPlaca", "<=", term + '\uf8ff'), limit(20));
-      if (userData.role !== 'admin') {
+      if (!isAdmin) {
          qPlaca = query(osRef, where("ownerId", "==", userData.id), where("veiculoPlaca", ">=", term), where("veiculoPlaca", "<=", term + '\uf8ff'), limit(20));
       }
       promises.push(getDocs(qPlaca));
@@ -191,7 +196,7 @@ export default function OsPage() {
       // 3. Busca por Nome
       const termNome = searchTerm.trim(); 
       let qNome = query(osRef, where("nomeCliente", ">=", termNome), where("nomeCliente", "<=", termNome + '\uf8ff'), limit(20));
-       if (userData.role !== 'admin') {
+       if (!isAdmin) {
          qNome = query(osRef, where("ownerId", "==", userData.id), where("nomeCliente", ">=", termNome), where("nomeCliente", "<=", termNome + '\uf8ff'), limit(20));
       }
       promises.push(getDocs(qNome));
@@ -271,7 +276,6 @@ export default function OsPage() {
   async function onSubmit(values: z.infer<typeof osFormSchema>) {
     if (!userData) { toast.error("Erro de autenticação."); return; }
     
-    // O Toast Loading Inicia Aqui
     const toastId = toast.loading("Criando OS...");
 
     try {
@@ -313,7 +317,6 @@ export default function OsPage() {
         body: JSON.stringify({ novaOS, itens: values.itens }),
       });
 
-      // A Mágica de Extrair o Erro 500 Real
       if (!response.ok) {
         const errorData = await response.json();
         throw new Error(errorData.error || "Erro desconhecido na API");
@@ -328,7 +331,6 @@ export default function OsPage() {
     } catch (error: any) { 
       toast.dismiss(toastId); 
       console.error("ERRO COMPLETO:", error); 
-      // Mostra exatamente a mensagem do backend ("Estoque insuficiente...")
       toast.error(error.message || "Erro ao salvar OS."); 
     }
   }
@@ -385,29 +387,73 @@ export default function OsPage() {
                  
                  {/* LINHA 1: Cliente e Veículo */}
                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-50 p-4 rounded-lg border">
+                    
+                    {/* NOVO CAMPO CLIENTE COM BUSCA (COMBOBOX) */}
                     <FormField control={form.control} name="clienteId" render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Cliente</FormLabel>
+                      <FormItem className="flex flex-col">
+                        <FormLabel className="mb-1">Cliente</FormLabel>
                         <div className="flex gap-2">
-                          <Select onValueChange={field.onChange} value={field.value}>
-                            <FormControl><SelectTrigger className="bg-white"><SelectValue placeholder="Selecione..." /></SelectTrigger></FormControl>
-                            <SelectContent>{clientes.map((c) => (<SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>))}</SelectContent>
-                          </Select>
-                          <Button type="button" variant="outline" size="icon" onClick={() => setIsClientModalOpen(true)}><Plus className="h-4 w-4" /></Button>
+                          <Popover open={isClienteOpen} onOpenChange={setIsClienteOpen}>
+                            <PopoverTrigger asChild>
+                              <FormControl>
+                                <Button
+                                  variant="outline"
+                                  role="combobox"
+                                  className={cn(
+                                    "w-full justify-between bg-white font-normal",
+                                    !field.value && "text-muted-foreground"
+                                  )}
+                                >
+                                  {field.value
+                                    ? clientes.find((c) => c.id === field.value)?.nome
+                                    : "Buscar cliente na lista..."}
+                                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                </Button>
+                              </FormControl>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-[--radix-popover-trigger-width] p-0">
+                              <Command>
+                                <CommandInput placeholder="Digite o nome do cliente..." />
+                                <CommandList>
+                                  <CommandEmpty>Nenhum cliente encontrado.</CommandEmpty>
+                                  <CommandGroup>
+                                    {clientes.map((c) => (
+                                      <CommandItem
+                                        value={c.nome}
+                                        key={c.id}
+                                        onSelect={() => {
+                                          form.setValue("clienteId", c.id);
+                                          setIsClienteOpen(false);
+                                        }}
+                                      >
+                                        <Check className={cn("mr-2 h-4 w-4", c.id === field.value ? "opacity-100" : "opacity-0")} />
+                                        {c.nome}
+                                      </CommandItem>
+                                    ))}
+                                  </CommandGroup>
+                                </CommandList>
+                              </Command>
+                            </PopoverContent>
+                          </Popover>
+                          <Button type="button" variant="outline" size="icon" onClick={() => setIsClientModalOpen(true)} title="Cadastrar Novo Cliente">
+                            <Plus className="h-4 w-4" />
+                          </Button>
                         </div>
                         <FormMessage />
                       </FormItem>
                     )} />
                     
                     {clienteIdSelecionado && (
-                     <FormItem>
-                        <FormLabel>Veículo</FormLabel>
+                     <FormItem className="flex flex-col">
+                        <FormLabel className="mb-1">Veículo</FormLabel>
                         <div className="flex gap-2">
                           <Select onValueChange={handleCarroSelecionado} value={carroSelecionadoId}>
                             <FormControl><SelectTrigger className="bg-white"><SelectValue placeholder="Selecione..." /></SelectTrigger></FormControl>
                             <SelectContent>{veiculosCliente.length>0 ? veiculosCliente.map((c)=>(<SelectItem key={c.id} value={c.id}>{c.modelo} - {c.placa}</SelectItem>)) : <div className="p-2 text-sm">Nenhum veículo.</div>}</SelectContent>
                           </Select>
-                          <Button type="button" variant="outline" size="icon" onClick={() => setIsVehicleModalOpen(true)}><Plus className="h-4 w-4" /></Button>
+                          <Button type="button" variant="outline" size="icon" onClick={() => setIsVehicleModalOpen(true)} title="Cadastrar Novo Veículo">
+                            <Plus className="h-4 w-4" />
+                          </Button>
                         </div>
                         {form.formState.errors.veiculoPlaca && <p className="text-sm text-destructive mt-1">Veículo obrigatório.</p>}
                       </FormItem>
