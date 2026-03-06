@@ -30,15 +30,17 @@ export async function POST(request: Request) {
         const produtoDoc = await transaction.get(produtoRef);
 
         if (!produtoDoc.exists) {
-          throw new Error(`Produto ${item.nome} não encontrado.`);
+          throw new Error(`Item ${item.nome} não encontrado.`);
         }
 
-        const estoqueAtual = produtoDoc.data()?.estoqueAtual || 0;
-        if (estoqueAtual < item.qtde) {
-          throw new Error(`Estoque insuficiente para ${item.nome}. Restam apenas ${estoqueAtual}.`);
+        // --- CORREÇÃO DE ARQUITETO: IGNORAR ESTOQUE SE FOR SERVIÇO ---
+        if (item.tipo !== 'servico') {
+          const estoqueAtual = produtoDoc.data()?.estoqueAtual || 0;
+          if (estoqueAtual < item.qtde) {
+            throw new Error(`Estoque insuficiente para ${item.nome}. Restam: ${estoqueAtual}.`);
+          }
+          updates.push({ ref: produtoRef, novoEstoque: estoqueAtual - item.qtde });
         }
-
-        updates.push({ ref: produtoRef, novoEstoque: estoqueAtual - item.qtde });
       }
 
       // B) Criar registro da Venda (Histórico)
@@ -61,12 +63,12 @@ export async function POST(request: Request) {
         descricao: `Venda PDV #${vendaRef.id.slice(0, 5).toUpperCase()}`,
         valor: total,
         formaPagamento,
-        categoria: 'Venda de Peças',
+        categoria: 'Venda de Balcão',
         ownerId,
         referenciaId: vendaRef.id
       });
 
-      // D) Atualizar Estoques
+      // D) Atualizar Estoques (Apenas para peças)
       for (const update of updates) {
         transaction.update(update.ref, { estoqueAtual: update.novoEstoque });
       }

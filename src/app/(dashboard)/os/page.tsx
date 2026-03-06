@@ -85,11 +85,26 @@ const vehicleFormSchema = z.object({
   cor: z.string().optional(),
 });
 
+// Formatador Universal de Moeda
+const formatCurrency = (value: number) => {
+  return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
+};
+
 export default function OsPage() {
+  // Auth
+  const { userData, loading: authLoading } = useAuth();
+  const router = useRouter();
+  
+  const isAdmin = userData?.role === 'admin';
+
   // --- ESTADOS ---
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isClientModalOpen, setIsClientModalOpen] = useState(false);
   const [isVehicleModalOpen, setIsVehicleModalOpen] = useState(false);
+
+  // Estados de Combobox (Lupa de pesquisa)
+  const [isComboboxOpen, setIsComboboxOpen] = useState(false); // Para Produtos/Serviços
+  const [isClienteOpen, setIsClienteOpen] = useState(false);   // NOVO: Para Clientes
 
   // Dados Principais
   const [ordensDeServico, setOrdensDeServico] = useState<OrdemDeServico[]>([]);
@@ -98,14 +113,9 @@ export default function OsPage() {
   const [veiculosCliente, setVeiculosCliente] = useState<Carro[]>([]);
   
   // Controles de Busca e UI
-  const [isComboboxOpen, setIsComboboxOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState(""); 
-  const [isSearching, setIsSearching] = useState(false); // Indica se está buscando no banco
+  const [isSearching, setIsSearching] = useState(false); 
   const [carroSelecionadoId, setCarroSelecionadoId] = useState<string>(""); 
-
-  // Auth
-  const { userData, loading: authLoading } = useAuth();
-  const router = useRouter();
 
   // --- FORMULÁRIOS ---
   const form = useForm<z.infer<typeof osFormSchema>>({
@@ -121,23 +131,18 @@ export default function OsPage() {
   useEffect(() => {
     if (!userData) return;
 
-    // 1. Carregar Clientes e Produtos (Leves, pode manter onSnapshot por enquanto ou mudar para getDocs se quiser economizar muito)
-    // Mantemos onSnapshot aqui para garantir que o select funcione bem, mas limitamos se necessário no futuro
     const unsubClientes = onSnapshot(query(collection(db, "clientes")), (s) => setClientes(s.docs.map(d => ({ id: d.id, ...d.data() } as Cliente))));
     const unsubProdutos = onSnapshot(collection(db, "produtos"), (s) => setProdutos(s.docs.map(d => ({ id: d.id, ...d.data() } as Produto))));
 
-    // 2. Carregar OS (O Pesado) - Lógica de Escuta Padrão
-    // Se NÃO estiver buscando, escuta as 30 últimas em tempo real
     let unsubOS = () => {};
 
     if (!isSearching) {
       const osRef = collection(db, "ordensDeServico");
       let qOS;
       
-      if (userData.role === 'admin') {
+      if (isAdmin) {
         qOS = query(osRef, orderBy("dataAbertura", "desc"), limit(30));
       } else {
-        // Obs: OwnerId + OrderBy requer índice composto no Firebase
         qOS = query(osRef, where("ownerId", "==", userData.id), orderBy("dataAbertura", "desc"), limit(30));
       }
 
@@ -145,9 +150,6 @@ export default function OsPage() {
         setOrdensDeServico(snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as OrdemDeServico)));
       }, (error) => {
         console.error("Erro no snapshot de OS:", error);
-        if (error.code === 'failed-precondition') {
-            toast.error("Erro de Índice: Verifique o console do navegador (F12) para criar o índice no Firebase.");
-        }
       });
     }
 
@@ -156,55 +158,49 @@ export default function OsPage() {
       unsubProdutos();
       unsubOS();
     };
-  }, [userData, isSearching]); // Recarrega se user mudar ou se entrar/sair do modo busca
+  }, [userData, isSearching, isAdmin]); 
 
 
-  // --- FUNÇÃO DE BUSCA CIRÚRGICA (ECONOMIA DE LEITURAS) ---
+  // --- FUNÇÃO DE BUSCA CIRÚRGICA ---
   const handleSearch = async () => {
     if (!searchTerm.trim()) {
-      setIsSearching(false); // Volta para o modo "30 últimas"
+      setIsSearching(false); 
       return;
     }
 
     if (!userData) return;
-    setIsSearching(true); // Ativa modo busca (para o onSnapshot padrão)
-    setOrdensDeServico([]); // Limpa lista visualmente
+    setIsSearching(true); 
+    setOrdensDeServico([]); 
 
-    const term = searchTerm.trim().toUpperCase(); // Normaliza para caixa alta (se salvou placa em maiusculo)
+    const term = searchTerm.trim().toUpperCase(); 
     const osRef = collection(db, "ordensDeServico");
     const resultadosTemp: Map<string, OrdemDeServico> = new Map();
 
     try {
-      // Como o Firestore não tem "OR" nativo fácil para texto parcial, faremos buscas paralelas inteligentes
       const promises = [];
 
-      // 1. Busca por Número da OS (se for número)
+      // 1. Busca por Número
       if (!isNaN(Number(term))) {
         let qNum = query(osRef, where("numeroOS", "==", Number(term)));
-        if (userData.role !== 'admin') qNum = query(qNum, where("ownerId", "==", userData.id));
+        if (!isAdmin) qNum = query(qNum, where("ownerId", "==", userData.id));
         promises.push(getDocs(qNum));
       }
 
-      // 2. Busca por Placa (Exata ou Início)
-      // Truque do Firestore para "começa com": where('placa', '>=', term) e where('placa', '<=', term + '\uf8ff')
+      // 2. Busca por Placa
       let qPlaca = query(osRef, where("veiculoPlaca", ">=", term), where("veiculoPlaca", "<=", term + '\uf8ff'), limit(20));
-      if (userData.role !== 'admin') {
-         // Nota: Queries de desigualdade (>=) com filtro de ownerId exigem indice composto
+      if (!isAdmin) {
          qPlaca = query(osRef, where("ownerId", "==", userData.id), where("veiculoPlaca", ">=", term), where("veiculoPlaca", "<=", term + '\uf8ff'), limit(20));
       }
       promises.push(getDocs(qPlaca));
 
-      // 3. Busca por Nome Cliente (Opcional - mais custoso se não tiver índice, vamos tentar)
-      // Vamos assumir que nome está salvo como digitado. Busca "Case Sensitive" no Firestore é chata.
-      // Vamos tentar buscar pelo termo original (sem upperCase forçado) para nomes
+      // 3. Busca por Nome
       const termNome = searchTerm.trim(); 
       let qNome = query(osRef, where("nomeCliente", ">=", termNome), where("nomeCliente", "<=", termNome + '\uf8ff'), limit(20));
-       if (userData.role !== 'admin') {
+       if (!isAdmin) {
          qNome = query(osRef, where("ownerId", "==", userData.id), where("nomeCliente", ">=", termNome), where("nomeCliente", "<=", termNome + '\uf8ff'), limit(20));
       }
       promises.push(getDocs(qNome));
 
-      // Executa tudo
       const snapshots = await Promise.all(promises);
 
       snapshots.forEach(snap => {
@@ -213,7 +209,6 @@ export default function OsPage() {
         });
       });
 
-      // Converte Map para Array e ordena por data (memória)
       const listaFinal = Array.from(resultadosTemp.values()).sort((a, b) => {
          const dateA = (a.dataAbertura as any)?.seconds || 0;
          const dateB = (b.dataAbertura as any)?.seconds || 0;
@@ -230,7 +225,7 @@ export default function OsPage() {
 
     } catch (error) {
       console.error("Erro na busca:", error);
-      toast.error("Erro ao buscar. Verifique o console para índices.");
+      toast.error("Erro ao buscar.");
     }
   };
 
@@ -280,13 +275,24 @@ export default function OsPage() {
   // --- SUBMITS ---
   async function onSubmit(values: z.infer<typeof osFormSchema>) {
     if (!userData) { toast.error("Erro de autenticação."); return; }
+    
+    const toastId = toast.loading("Criando OS...");
+
     try {
       const q = query(collection(db, "ordensDeServico"), where("clienteId", "==", values.clienteId), where("status", "==", "aberta"));
       const querySnapshot = await getDocs(q);
-      if (!querySnapshot.empty) { toast.warning("Cliente já possui OS aberta."); return; }
+      
+      if (!querySnapshot.empty) { 
+        toast.dismiss(toastId);
+        toast.warning("Cliente já possui OS aberta."); 
+        return; 
+      }
 
       const clienteSelecionado = clientes.find((c) => c.id === values.clienteId);
-      if (!clienteSelecionado) return;
+      if (!clienteSelecionado) {
+        toast.dismiss(toastId);
+        return;
+      }
 
       const novaOS = {
         numeroOS: Math.floor(Math.random() * 10000) + 1,
@@ -304,7 +310,6 @@ export default function OsPage() {
         ownerId: userData.id 
       };
 
-      const toastId = toast.loading("Criando OS...");
       const token = await auth.currentUser?.getIdToken();
       const response = await fetch('/api/os/create', {
         method: 'POST',
@@ -312,13 +317,22 @@ export default function OsPage() {
         body: JSON.stringify({ novaOS, itens: values.itens }),
       });
 
-      if (!response.ok) throw new Error("Erro na API");
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Erro desconhecido na API");
+      }
       
       toast.dismiss(toastId);
       toast.success("OS Criada com Sucesso!");
-      form.reset(); setCarroSelecionadoId(""); setIsModalOpen(false);
+      form.reset(); 
+      setCarroSelecionadoId(""); 
+      setIsModalOpen(false);
 
-    } catch (error) { toast.dismiss(); console.error(error); toast.error("Erro ao salvar OS."); }
+    } catch (error: any) { 
+      toast.dismiss(toastId); 
+      console.error("ERRO COMPLETO:", error); 
+      toast.error(error.message || "Erro ao salvar OS."); 
+    }
   }
 
   // --- SUBMITS MODAIS ---
@@ -330,6 +344,7 @@ export default function OsPage() {
       toast.success("Cliente cadastrado!");
     } catch (e) { toast.error("Erro ao cadastrar."); }
   }
+  
   async function onVehicleSubmit(values: z.infer<typeof vehicleFormSchema>) {
     if (!userData) return;
     const cid = form.getValues("clienteId");
@@ -358,74 +373,230 @@ export default function OsPage() {
     <div>
       <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
         <h1 className="text-4xl font-bold">Ordens de Serviço</h1>
+        
         <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
           <DialogTrigger asChild><Button>Criar Nova OS</Button></DialogTrigger>
-          <DialogContent className="sm:max-w-3xl">
-             <DialogHeader><DialogTitle>Nova OS</DialogTitle><DialogDescription>Preencha os dados abaixo.</DialogDescription></DialogHeader>
+          <DialogContent className="sm:max-w-4xl max-h-[90vh] overflow-y-auto">
+             <DialogHeader>
+                <DialogTitle>Nova OS</DialogTitle>
+                <DialogDescription>Preencha os dados abaixo.</DialogDescription>
+             </DialogHeader>
+
              <Form {...form}>
                <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-                 {/* ... FORMULARIO (MANTIDO IGUAL AO ANTERIOR PARA ECONOMIZAR ESPAÇO VISUAL AQUI, MAS O CODIGO COMPLETO ESTÁ NA LOGICA ACIMA) ... */}
-                 {/* LINHA 1 */}
-                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                 
+                 {/* LINHA 1: Cliente e Veículo */}
+                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-50 p-4 rounded-lg border">
+                    
+                    {/* NOVO CAMPO CLIENTE COM BUSCA (COMBOBOX) */}
                     <FormField control={form.control} name="clienteId" render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Cliente</FormLabel>
+                      <FormItem className="flex flex-col">
+                        <FormLabel className="mb-1">Cliente</FormLabel>
                         <div className="flex gap-2">
-                          <Select onValueChange={field.onChange} value={field.value}><FormControl><SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger></FormControl><SelectContent>{clientes.map((c) => (<SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>))}</SelectContent></Select>
-                          <Button type="button" variant="outline" size="icon" onClick={() => setIsClientModalOpen(true)}><Plus className="h-4 w-4" /></Button>
+                          <Popover open={isClienteOpen} onOpenChange={setIsClienteOpen}>
+                            <PopoverTrigger asChild>
+                              <FormControl>
+                                <Button
+                                  variant="outline"
+                                  role="combobox"
+                                  className={cn(
+                                    "w-full justify-between bg-white font-normal",
+                                    !field.value && "text-muted-foreground"
+                                  )}
+                                >
+                                  {field.value
+                                    ? clientes.find((c) => c.id === field.value)?.nome
+                                    : "Buscar cliente na lista..."}
+                                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                </Button>
+                              </FormControl>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-[--radix-popover-trigger-width] p-0">
+                              <Command>
+                                <CommandInput placeholder="Digite o nome do cliente..." />
+                                <CommandList>
+                                  <CommandEmpty>Nenhum cliente encontrado.</CommandEmpty>
+                                  <CommandGroup>
+                                    {clientes.map((c) => (
+                                      <CommandItem
+                                        value={c.nome}
+                                        key={c.id}
+                                        onSelect={() => {
+                                          form.setValue("clienteId", c.id);
+                                          setIsClienteOpen(false);
+                                        }}
+                                      >
+                                        <Check className={cn("mr-2 h-4 w-4", c.id === field.value ? "opacity-100" : "opacity-0")} />
+                                        {c.nome}
+                                      </CommandItem>
+                                    ))}
+                                  </CommandGroup>
+                                </CommandList>
+                              </Command>
+                            </PopoverContent>
+                          </Popover>
+                          <Button type="button" variant="outline" size="icon" onClick={() => setIsClientModalOpen(true)} title="Cadastrar Novo Cliente">
+                            <Plus className="h-4 w-4" />
+                          </Button>
                         </div>
                         <FormMessage />
                       </FormItem>
                     )} />
+                    
                     {clienteIdSelecionado && (
-                     <FormItem>
-                        <FormLabel>Veículo</FormLabel>
+                     <FormItem className="flex flex-col">
+                        <FormLabel className="mb-1">Veículo</FormLabel>
                         <div className="flex gap-2">
-                          <Select onValueChange={handleCarroSelecionado} value={carroSelecionadoId}><FormControl><SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger></FormControl><SelectContent>{veiculosCliente.length>0 ? veiculosCliente.map((c)=>(<SelectItem key={c.id} value={c.id}>{c.modelo} - {c.placa}</SelectItem>)) : <div className="p-2 text-sm">Nenhum veículo.</div>}</SelectContent></Select>
-                          <Button type="button" variant="outline" size="icon" onClick={() => setIsVehicleModalOpen(true)}><Plus className="h-4 w-4" /></Button>
+                          <Select onValueChange={handleCarroSelecionado} value={carroSelecionadoId}>
+                            <FormControl><SelectTrigger className="bg-white"><SelectValue placeholder="Selecione..." /></SelectTrigger></FormControl>
+                            <SelectContent>{veiculosCliente.length>0 ? veiculosCliente.map((c)=>(<SelectItem key={c.id} value={c.id}>{c.modelo} - {c.placa}</SelectItem>)) : <div className="p-2 text-sm">Nenhum veículo.</div>}</SelectContent>
+                          </Select>
+                          <Button type="button" variant="outline" size="icon" onClick={() => setIsVehicleModalOpen(true)} title="Cadastrar Novo Veículo">
+                            <Plus className="h-4 w-4" />
+                          </Button>
                         </div>
                         {form.formState.errors.veiculoPlaca && <p className="text-sm text-destructive mt-1">Veículo obrigatório.</p>}
                       </FormItem>
                     )}
                  </div>
-                 {/* LINHA 2 */}
+
+                 {/* LINHA 2: Descrição e Garantia */}
                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <FormField control={form.control} name="servicosDescricao" render={({ field }) => (<FormItem className="md:col-span-2"><FormLabel>Observações</FormLabel><FormControl><Textarea placeholder="Serviços a realizar..." {...field} /></FormControl><FormMessage /></FormItem>)} />
-                    <FormField control={form.control} name="garantiaDias" render={({ field }) => (<FormItem><FormLabel>Garantia (dias)</FormLabel><FormControl><Input type="number" {...field} /></FormControl><FormMessage /></FormItem>)} />
+                    <FormField control={form.control} name="servicosDescricao" render={({ field }) => (
+                      <FormItem className="md:col-span-2">
+                        <FormLabel>Observações e Defeitos</FormLabel>
+                        <FormControl><Textarea placeholder="Descreva os serviços a realizar..." {...field} /></FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                    <FormField control={form.control} name="garantiaDias" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Garantia (dias)</FormLabel>
+                        <FormControl><Input type="number" {...field} /></FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
                  </div>
-                 {/* ITENS */}
-                 <div>
-                    <FormLabel>Peças e Serviços</FormLabel>
+
+                 {/* SEÇÃO ITENS */}
+                 <div className="space-y-4 pt-4 border-t">
+                    <FormLabel className="text-lg font-bold">Peças e Serviços</FormLabel>
                     <Popover open={isComboboxOpen} onOpenChange={setIsComboboxOpen}>
-                      <PopoverTrigger asChild><Button variant="outline" role="combobox" className="w-full justify-between mt-2">Selecione um item...<ChevronsUpDown className="ml-2 h-4 w-4 opacity-50" /></Button></PopoverTrigger>
+                      <PopoverTrigger asChild>
+                        <Button variant="outline" role="combobox" className="w-full justify-between h-12 text-lg">
+                          Selecione um produto ou serviço para adicionar...
+                          <ChevronsUpDown className="ml-2 h-4 w-4 opacity-50" />
+                        </Button>
+                      </PopoverTrigger>
                       <PopoverContent className="w-[--radix-popover-trigger-width] p-0">
                         <Command>
-                          <CommandInput placeholder="Buscar..." />
-                          <CommandList><CommandEmpty>Nada encontrado.</CommandEmpty><CommandGroup>{produtos.map((p) => (<CommandItem key={p.id} value={`${p.nome} ${p.codigoSku||''}`} onSelect={() => adicionarProduto(p)}><Check className={cn("mr-2 h-4 w-4", fields.some((i) => i.id === p.id) ? "opacity-100" : "opacity-0")} />{p.nome}</CommandItem>))}</CommandGroup></CommandList>
+                          <CommandInput placeholder="Buscar no estoque..." />
+                          <CommandList>
+                            <CommandEmpty>Item não encontrado.</CommandEmpty>
+                            <CommandGroup>
+                              {produtos.map((p) => (
+                                <CommandItem key={p.id} value={`${p.nome} ${p.codigoSku||''}`} onSelect={() => adicionarProduto(p)}>
+                                  <Check className={cn("mr-2 h-4 w-4", fields.some((i) => i.id === p.id) ? "opacity-100" : "opacity-0")} />
+                                  <div className="flex justify-between w-full pr-2">
+                                    <span>{p.nome}</span>
+                                    <span className={cn("text-sm", p.tipo === 'peca' ? "text-blue-600" : "text-purple-600")}>
+                                      {p.tipo === 'peca' ? `Est: ${p.estoqueAtual}` : 'Serviço'}
+                                    </span>
+                                  </div>
+                                </CommandItem>
+                              ))}
+                            </CommandGroup>
+                          </CommandList>
                         </Command>
                       </PopoverContent>
                     </Popover>
-                    <FormMessage>{form.formState.errors.itens?.message}</FormMessage>
+                    <FormMessage className="text-center">{form.formState.errors.itens?.message}</FormMessage>
                  </div>
-                 {/* TABELA ITENS */}
-                 <div className="rounded-md border">
-                    <Table>
-                      <TableHeader><TableRow><TableHead>Item</TableHead><TableHead className="w-[100px]">Qtde</TableHead><TableHead className="w-[120px]">Unit.</TableHead><TableHead className="w-[120px]">Total</TableHead><TableHead className="w-[50px]"></TableHead></TableRow></TableHeader>
-                      <TableBody>
-                        {fields.map((item, index) => (
-                          <TableRow key={item.id}>
-                            <TableCell>{item.nome}</TableCell>
-                            <TableCell><FormField control={form.control} name={`itens.${index}.qtde`} render={({ field }) => (<Input type="number" className="h-8" {...field} onChange={(e) => { const v = parseInt(e.target.value)||0; if(item.tipo==='peca' && v>item.estoqueAtual) form.setError(`itens.${index}.qtde`,{message:`Max:${item.estoqueAtual}`}); else form.clearErrors(`itens.${index}.qtde`); field.onChange(v); }} />)} /><FormMessage>{form.formState.errors.itens?.[index]?.qtde?.message}</FormMessage></TableCell>
-                            <TableCell>R$ {item.precoUnitario.toFixed(2)}</TableCell>
-                            <TableCell>R$ {(item.precoUnitario*(item.qtde||0)).toFixed(2)}</TableCell>
-                            <TableCell><Button type="button" variant="destructive" size="icon-sm" onClick={() => remove(index)}><Trash2 className="h-4 w-4" /></Button></TableCell>
+
+                 {/* TABELA DE ITENS COM VALIDAÇÃO EM TEMPO REAL */}
+                 {fields.length > 0 && (
+                   <div className="rounded-md border bg-white">
+                      <Table>
+                        <TableHeader className="bg-slate-50">
+                          <TableRow>
+                            <TableHead>Item</TableHead>
+                            <TableHead className="w-[120px] text-center">Qtde</TableHead>
+                            <TableHead className="w-[150px] text-right">Unitário</TableHead>
+                            <TableHead className="w-[150px] text-right">Total</TableHead>
+                            <TableHead className="w-[50px]"></TableHead>
                           </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
+                        </TableHeader>
+                        <TableBody>
+                          {fields.map((item, index) => (
+                            <TableRow key={item.id}>
+                              <TableCell className="font-medium">
+                                {item.nome}
+                                <span className="block text-xs text-gray-500 capitalize">{item.tipo}</span>
+                              </TableCell>
+                              <TableCell>
+                                <FormField 
+                                  control={form.control} 
+                                  name={`itens.${index}.qtde`} 
+                                  render={({ field }) => (
+                                    <FormItem>
+                                      <FormControl>
+                                        <Input 
+                                          type="number" 
+                                          className="h-10 text-center font-bold" 
+                                          {...field} 
+                                          onChange={(e) => { 
+                                            const v = parseInt(e.target.value) || 0; 
+                                            if(item.tipo === 'peca' && v > item.estoqueAtual) {
+                                              form.setError(`itens.${index}.qtde`, { message:`Máx: ${item.estoqueAtual}`}); 
+                                            } else {
+                                              form.clearErrors(`itens.${index}.qtde`); 
+                                            }
+                                            field.onChange(v); 
+                                          }} 
+                                        />
+                                      </FormControl>
+                                      <FormMessage className="text-xs text-center mt-1" />
+                                    </FormItem>
+                                  )} 
+                                />
+                              </TableCell>
+                              <TableCell className="text-right text-gray-600">{formatCurrency(item.precoUnitario)}</TableCell>
+                              <TableCell className="text-right font-bold text-green-700">{formatCurrency(item.precoUnitario * (item.qtde || 0))}</TableCell>
+                              <TableCell>
+                                <Button type="button" variant="ghost" size="icon" onClick={() => remove(index)}>
+                                  <Trash2 className="h-5 w-5 text-red-500" />
+                                </Button>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                   </div>
+                 )}
+
+                 {/* RODAPÉ DO MODAL COM TOTAIS E SUBMIT */}
+                 <div className="flex justify-between items-center bg-slate-50 p-4 rounded-lg border mt-6">
+                    <div>
+                      {isAdmin && (
+                        <h2 className="text-sm text-gray-500">Custo Total: {formatCurrency(custoTotalOS)}</h2>
+                      )}
+                    </div>
+                    <div className="text-right">
+                      <h2 className="text-4xl font-black text-green-700">{formatCurrency(valorTotalOS)}</h2>
+                    </div>
                  </div>
-                 <div className="flex justify-between items-center"><h2 className="text-lg text-gray-600">Custo: R$ {custoTotalOS.toFixed(2)}</h2><h2 className="text-2xl font-bold">Total: R$ {valorTotalOS.toFixed(2)}</h2></div>
-                 <DialogFooter><Button type="submit" disabled={form.formState.isSubmitting}>{form.formState.isSubmitting?"Salvando...":"Salvar OS"}</Button></DialogFooter>
+
+                 <DialogFooter className="mt-6">
+                    <Button 
+                      type="submit" 
+                      size="lg"
+                      className="w-full h-14 text-xl"
+                      disabled={form.formState.isSubmitting}
+                    >
+                      {form.formState.isSubmitting ? <><Loader2 className="mr-2 h-5 w-5 animate-spin" /> Processando...</> : "Gerar Ordem de Serviço"}
+                    </Button>
+                 </DialogFooter>
+
                </form>
              </Form>
           </DialogContent>
@@ -433,10 +604,33 @@ export default function OsPage() {
 
         {/* MODAIS AUXILIARES (CLIENTE/VEICULO) */}
         <Dialog open={isClientModalOpen} onOpenChange={setIsClientModalOpen}>
-           <DialogContent><DialogHeader><DialogTitle>Novo Cliente</DialogTitle></DialogHeader><Form {...clientForm}><form onSubmit={clientForm.handleSubmit(onClientSubmit)} className="space-y-4"><FormField control={clientForm.control} name="nome" render={({field})=>(<FormItem><FormLabel>Nome</FormLabel><FormControl><Input {...field}/></FormControl><FormMessage/></FormItem>)}/><FormField control={clientForm.control} name="telefone" render={({field})=>(<FormItem><FormLabel>Telefone</FormLabel><FormControl><Input {...field}/></FormControl><FormMessage/></FormItem>)}/><DialogFooter><Button type="submit">Salvar</Button></DialogFooter></form></Form></DialogContent>
+           <DialogContent>
+             <DialogHeader><DialogTitle>Novo Cliente Rápido</DialogTitle></DialogHeader>
+             <Form {...clientForm}>
+               <form onSubmit={clientForm.handleSubmit(onClientSubmit)} className="space-y-4">
+                 <FormField control={clientForm.control} name="nome" render={({field})=>(<FormItem><FormLabel>Nome Completo</FormLabel><FormControl><Input {...field}/></FormControl><FormMessage/></FormItem>)}/>
+                 <FormField control={clientForm.control} name="telefone" render={({field})=>(<FormItem><FormLabel>Telefone (WhatsApp)</FormLabel><FormControl><Input {...field}/></FormControl><FormMessage/></FormItem>)}/>
+                 <DialogFooter><Button type="submit">Salvar Cliente</Button></DialogFooter>
+               </form>
+             </Form>
+           </DialogContent>
         </Dialog>
+
         <Dialog open={isVehicleModalOpen} onOpenChange={setIsVehicleModalOpen}>
-           <DialogContent><DialogHeader><DialogTitle>Novo Veículo</DialogTitle></DialogHeader><Form {...vehicleForm}><form onSubmit={vehicleForm.handleSubmit(onVehicleSubmit)} className="space-y-4"><FormField control={vehicleForm.control} name="modelo" render={({field})=>(<FormItem><FormLabel>Modelo</FormLabel><FormControl><Input {...field}/></FormControl><FormMessage/></FormItem>)}/><div className="grid grid-cols-2 gap-4"><FormField control={vehicleForm.control} name="placa" render={({field})=>(<FormItem><FormLabel>Placa</FormLabel><FormControl><Input className="uppercase" {...field}/></FormControl><FormMessage/></FormItem>)}/><FormField control={vehicleForm.control} name="ano" render={({field})=>(<FormItem><FormLabel>Ano</FormLabel><FormControl><Input {...field}/></FormControl><FormMessage/></FormItem>)}/></div><FormField control={vehicleForm.control} name="cor" render={({field})=>(<FormItem><FormLabel>Cor</FormLabel><FormControl><Input {...field}/></FormControl><FormMessage/></FormItem>)}/><DialogFooter><Button type="submit">Salvar</Button></DialogFooter></form></Form></DialogContent>
+           <DialogContent>
+             <DialogHeader><DialogTitle>Novo Veículo Rápido</DialogTitle></DialogHeader>
+             <Form {...vehicleForm}>
+               <form onSubmit={vehicleForm.handleSubmit(onVehicleSubmit)} className="space-y-4">
+                 <FormField control={vehicleForm.control} name="modelo" render={({field})=>(<FormItem><FormLabel>Modelo do Veículo</FormLabel><FormControl><Input placeholder="Ex: Gol G5" {...field}/></FormControl><FormMessage/></FormItem>)}/>
+                 <div className="grid grid-cols-2 gap-4">
+                   <FormField control={vehicleForm.control} name="placa" render={({field})=>(<FormItem><FormLabel>Placa</FormLabel><FormControl><Input className="uppercase" placeholder="ABC1234" {...field}/></FormControl><FormMessage/></FormItem>)}/>
+                   <FormField control={vehicleForm.control} name="ano" render={({field})=>(<FormItem><FormLabel>Ano</FormLabel><FormControl><Input placeholder="Ex: 2015" {...field}/></FormControl><FormMessage/></FormItem>)}/>
+                 </div>
+                 <FormField control={vehicleForm.control} name="cor" render={({field})=>(<FormItem><FormLabel>Cor</FormLabel><FormControl><Input placeholder="Ex: Prata" {...field}/></FormControl><FormMessage/></FormItem>)}/>
+                 <DialogFooter><Button type="submit">Salvar Veículo</Button></DialogFooter>
+               </form>
+             </Form>
+           </DialogContent>
         </Dialog>
       </div>
 
@@ -448,7 +642,7 @@ export default function OsPage() {
             placeholder="Pesquisar por Placa, Nome do Cliente ou Nº OS..." 
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleSearch()} // Busca ao dar Enter
+            onKeyDown={(e) => e.key === 'Enter' && handleSearch()} 
             className="pl-10 text-lg py-6"
           />
         </div>
@@ -462,8 +656,8 @@ export default function OsPage() {
         )}
       </div>
 
-      {/* --- TABELA --- */}
-      <div className="rounded-md border">
+      {/* --- TABELA DE ORDENS --- */}
+      <div className="rounded-md border bg-white shadow-sm">
         <Table>
           <TableHeader>
             <TableRow>
@@ -473,37 +667,54 @@ export default function OsPage() {
               <TableHead>Data</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Valor Total</TableHead>
-              <TableHead>Ações</TableHead>
+              <TableHead className="text-right">Ações</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {ordensDeServico.length === 0 && (
               <TableRow>
-                <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
-                  {isSearching ? "Nenhum resultado encontrado." : "Nenhuma OS recente."}
+                <TableCell colSpan={7} className="text-center py-10 text-muted-foreground text-lg">
+                  {isSearching ? "Nenhum resultado encontrado para a sua busca." : "Nenhuma Ordem de Serviço encontrada."}
                 </TableCell>
               </TableRow>
             )}
             {ordensDeServico.map((os) => (
               <TableRow key={os.id}>
                 <TableCell>
-                  <Link href={`/os/${os.id}`} className="font-medium text-primary hover:underline">
-                    {os.numeroOS}
+                  <Link href={`/os/${os.id}`} className="font-bold text-blue-600 hover:underline">
+                    #{os.numeroOS}
                   </Link>
                 </TableCell>
                 <TableCell className="font-medium">{os.nomeCliente}</TableCell>
-                <TableCell>{os.veiculoPlaca}</TableCell>
+                <TableCell>
+                  <span className="bg-gray-100 px-2 py-1 rounded border text-xs font-mono uppercase">
+                    {os.veiculoPlaca}
+                  </span>
+                </TableCell>
                 <TableCell>
                   {/* @ts-ignore */}
                   {os.dataAbertura && (os.dataAbertura.toDate ? os.dataAbertura.toDate().toLocaleDateString() : new Date(os.dataAbertura.seconds * 1000).toLocaleDateString())}
                 </TableCell>
-                <TableCell><span className={cn("capitalize", os.status==='aberta' && "text-yellow-600 font-bold", os.status==='finalizada' && "text-green-600 font-bold")}>{os.status}</span></TableCell>
-                <TableCell>R$ {os.valorTotal.toFixed(2)}</TableCell>
-                <TableCell className="flex items-center">
-                  <Button asChild variant="outline" size="sm"><Link href={`/os/${os.id}`}>Detalhes</Link></Button>
-                  {userData?.role === 'admin' && (
-                    <Button variant="destructive" size="sm" className="ml-2" onClick={() => handleDeleteOS(os)}><Trash2 className="h-4 w-4" /></Button>
-                  )}
+                <TableCell>
+                  <span className={cn(
+                    "px-3 py-1 rounded-full text-xs font-bold uppercase",
+                    os.status === 'aberta' ? "bg-yellow-100 text-yellow-700" : "bg-green-100 text-green-700"
+                  )}>
+                    {os.status}
+                  </span>
+                </TableCell>
+                <TableCell className="font-bold">{formatCurrency(os.valorTotal)}</TableCell>
+                <TableCell className="text-right">
+                  <div className="flex justify-end gap-2">
+                    <Button asChild variant="outline" size="sm">
+                      <Link href={`/os/${os.id}`}>Ver</Link>
+                    </Button>
+                    {isAdmin && (
+                      <Button variant="ghost" size="sm" onClick={() => handleDeleteOS(os)}>
+                        <Trash2 className="h-4 w-4 text-red-500" />
+                      </Button>
+                    )}
+                  </div>
                 </TableCell>
               </TableRow>
             ))}
@@ -513,9 +724,9 @@ export default function OsPage() {
 
       {/* AVISO DE ECONOMIA */}
       {!isSearching && ordensDeServico.length > 0 && (
-        <div className="mt-4 flex items-center justify-center text-sm text-muted-foreground gap-2 bg-blue-50 p-2 rounded border border-blue-100">
-          <AlertCircle className="h-4 w-4 text-blue-500" />
-          <span>Mostrando as 30 OS mais recentes. Use a busca acima para encontrar ordens antigas.</span>
+        <div className="mt-4 flex items-center justify-center text-sm text-gray-500 gap-2 p-2">
+          <AlertCircle className="h-4 w-4" />
+          <span>Mostrando as 30 OS mais recentes. Use a barra de busca para encontrar ordens antigas.</span>
         </div>
       )}
     </div>
